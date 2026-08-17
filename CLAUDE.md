@@ -23,11 +23,17 @@ verändern oder Daten aus fremden Quellen zu importieren:
 Dateiformat, welche Regeln die App beim Import stillschweigend erzwingt und
 welche sie ungeprüft durchlässt.
 
+Für den Import aus einer fremden Quelle gibt es den fertigen Ablauf
+`/import <quelldatei>` (siehe `.claude/commands/import.md`).
+
 Prüfe jedes Ergebnis, bevor du es ausgibst:
 
 ```
 node tools/validate-daten.mjs <datei.json>
 ```
+
+Exportierte Haushaltsdateien (`notgroschen-*.json`) sind über `.gitignore`
+ausgeschlossen und dürfen nie committet werden.
 
 ## Prüfen
 

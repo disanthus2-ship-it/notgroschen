@@ -151,6 +151,18 @@ Regeln, die die App beim Import stillschweigend erzwingt (und die, die sie
 der wichtigsten Fallgrube: Ein Kontoauszug darf nicht eins zu eins zu
 Einzelbuchungen werden, sonst zählen wiederkehrende Posten doppelt.
 
+In **Claude Code** ist der Ablauf als Slash-Command hinterlegt. Repo klonen,
+den Export aus der App und die Quelldatei in den Ordner legen, dann:
+
+```
+/import kontoauszug.csv
+```
+
+Der Command sichtet die Quelle, schlägt vor, was wiederkehrender Posten und was
+Einzelbuchung wird, fragt vor dem Schreiben nach, legt das Ergebnis als
+`*.imported.json` neben dem Original ab und stellt die Monatsbilanz vorher und
+nachher gegenüber. Das Original wird nie überschrieben.
+
 Zum Nachweis, dass eine veränderte Datei wieder importierbar ist:
 
 ```
