@@ -47,6 +47,7 @@ window.HB = window.HB || {};
       withdrawalPct: 3.5,          // sichere Entnahmerate p. a.
       annualSpendOverride: null,   // null = Jahresausgaben aus dem Budget
       spendFactor: 100,            // Ausgabenniveau im Ruhestand in % von heute
+      coastYears: 20,              // Horizont für die Coast-FIRE-Schwelle
       maxYears: 60
     };
   }

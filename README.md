@@ -139,6 +139,29 @@ Beim Laden ersetzt die Datei den aktuellen Stand vollständig. Ältere Dateien
 werden beim Import migriert: fehlende Felder bekommen Vorgaben, unbekannte Träger
 und Kategorien werden auf gültige Werte zurückgeführt.
 
+## Datenimport mit KI-Werkzeugen
+
+Für Assistenten wie Claude, die eine exportierte Datei auswerten oder verändern
+sollen — etwa um Kontoauszüge, Tabellen oder ein altes Haushaltsbuch zu
+übernehmen — liegt eine vollständige Anleitung bereit:
+
+**[`AGENTS.md`](AGENTS.md)** beschreibt das Dateiformat Feld für Feld, die
+Regeln, die die App beim Import stillschweigend erzwingt (und die, die sie
+*nicht* prüft), sowie das Vorgehen beim Import aus fremden Quellen — inklusive
+der wichtigsten Fallgrube: Ein Kontoauszug darf nicht eins zu eins zu
+Einzelbuchungen werden, sonst zählen wiederkehrende Posten doppelt.
+
+Zum Nachweis, dass eine veränderte Datei wieder importierbar ist:
+
+```
+node tools/validate-daten.mjs meine-datei.json
+```
+
+Das Skript prüft Struktur, Verweise und Wertebereiche, warnt vor Duplikaten und
+falsch einsortierten Kategorien und gibt eine Monatsbilanz aus. Exit-Code `0`
+heißt importierbar. Es ist reines Werkzeug und liest nur — die App selbst hat
+weiterhin keinerlei Node-Abhängigkeit.
+
 ## Aufbau
 
 ```
