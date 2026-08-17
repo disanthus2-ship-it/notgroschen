@@ -39,10 +39,10 @@ window.HB = window.HB || {};
 
   function defaultFire() {
     return {
-      startAssets: 0,
+      startAssets: null,           // null = automatisch: Gesamtvermögen inkl. Investments
       monthlyContribution: null,   // null = automatisch aus dem Haushaltssaldo
       contributionGrowthPct: 0,    // jährliche Steigerung der Sparrate, real
-      returnPct: 6,                // erwartete Nominalrendite p. a.
+      returnPct: null,             // null = automatisch: gewichtete Portfoliorendite
       inflationPct: 2,             // erwartete Inflation p. a.
       withdrawalPct: 3.5,          // sichere Entnahmerate p. a.
       annualSpendOverride: null,   // null = Jahresausgaben aus dem Budget
@@ -66,11 +66,14 @@ window.HB = window.HB || {};
         sankeyMode: 'budget',      // 'budget' | 'direct'
         sankeyMinShare: 1.5        // Anteil in %, darunter wird zu "Sonstige" gefaltet
       },
+      // assets = Vermögen außerhalb der Investments (Girokonto, Bargeld, Sparbuch).
+      // Das Gesamtvermögen ist assets + Summe der Investments, siehe calc.totalAssets.
       household: { budget: null, assets: 0 },
       people: [],
       categories: U.deepClone(DEFAULT_CATEGORIES),
       items: [],
       transactions: [],
+      investments: [],
       plans: [],
       fire: defaultFire()
     };
@@ -83,8 +86,7 @@ window.HB = window.HB || {};
     var m = U.monthKey();
     s.meta.name = 'Haushalt Berg';
     s.household.budget = 4600;
-    s.household.assets = 42000;
-    s.fire.startAssets = 42000;
+    s.household.assets = 8500;   // Girokonto und Rücklage; der Rest steckt in Investments
 
     var a = { id: 'per_alex',  name: 'Alex',  colorIndex: 0, budget: 400, sharePct: null, note: '' };
     var r = { id: 'per_robin', name: 'Robin', colorIndex: 1, budget: 400, sharePct: null, note: '' };
@@ -133,6 +135,33 @@ window.HB = window.HB || {};
       item({ l: 'Freizeit & Ausgehen',   a: 150, k: 'expense', o: r.id, c: 'cat_leisure' }),
       item({ l: 'Kleidung',              a: 110, k: 'expense', o: r.id, c: 'cat_shopping' }),
       item({ l: 'Weiterbildung',         a: 65,  k: 'expense', o: r.id, c: 'cat_kids' })
+    ];
+
+    // Der ETF-Sparplan ist zugleich Geldfluss (Posten) und Vermögen (Investment) —
+    // verknüpft, damit die Rate nur einmal im Budget zählt.
+    var etfItem = s.items.filter(function (i) { return i.label === 'ETF-Sparplan'; })[0];
+
+    s.investments = [
+      {
+        id: U.uid('inv'), label: 'MSCI World ETF', type: 'etf', owner: 'household',
+        currentValue: 21400, costBasis: 18200, expectedReturnPct: 6.5,
+        linkedItemId: etfItem ? etfItem.id : null, provider: 'Depotbank', note: ''
+      },
+      {
+        id: U.uid('inv'), label: 'Fixzinssparen 3 Jahre', type: 'fixzins', owner: 'household',
+        currentValue: 6000, costBasis: 6000, expectedReturnPct: 3.1,
+        linkedItemId: null, provider: 'Hausbank', note: 'Bindung bis 2028'
+      },
+      {
+        id: U.uid('inv'), label: 'Einzelaktien', type: 'aktien', owner: a.id,
+        currentValue: 4300, costBasis: 3600, expectedReturnPct: 7,
+        linkedItemId: null, provider: 'Broker', note: ''
+      },
+      {
+        id: U.uid('inv'), label: 'Bausparvertrag', type: 'bausparer', owner: r.id,
+        currentValue: 1800, costBasis: 1750, expectedReturnPct: 1.5,
+        linkedItemId: null, provider: 'Bausparkasse', note: ''
+      }
     ];
 
     function tx(day, label, amount, kind, owner, cat) {
@@ -217,6 +246,7 @@ window.HB = window.HB || {};
         ? raw.categories : base.categories,
       items: Array.isArray(raw.items) ? raw.items : [],
       transactions: Array.isArray(raw.transactions) ? raw.transactions : [],
+      investments: Array.isArray(raw.investments) ? raw.investments : [],
       plans: Array.isArray(raw.plans) ? raw.plans : [],
       fire: Object.assign(defaultFire(), raw.fire || {})
     };
@@ -273,6 +303,28 @@ window.HB = window.HB || {};
         note: String(t.note || '')
       };
     }).sort(function (x, y) { return x.date < y.date ? 1 : x.date > y.date ? -1 : 0; });
+
+    var validItem = {};
+    s.items.forEach(function (it) { validItem[it.id] = true; });
+
+    s.investments = s.investments.map(function (inv, i) {
+      var type = HB.calc && HB.calc.INVESTMENT_TYPES[inv.type] ? inv.type : 'sonstiges';
+      return {
+        id: inv.id || U.uid('inv'),
+        label: String(inv.label || 'Investment ' + (i + 1)),
+        type: type,
+        owner: fixOwner(inv.owner),
+        currentValue: Number(inv.currentValue) || 0,
+        costBasis: inv.costBasis == null || inv.costBasis === '' ? null : Number(inv.costBasis),
+        expectedReturnPct: inv.expectedReturnPct == null || inv.expectedReturnPct === ''
+          ? null : Number(inv.expectedReturnPct),
+        // Ein Verweis auf einen gelöschten Posten wird gekappt, sonst zeigt die
+        // Oberfläche einen Sparplan an, den es nicht mehr gibt.
+        linkedItemId: validItem[inv.linkedItemId] ? inv.linkedItemId : null,
+        provider: String(inv.provider || ''),
+        note: String(inv.note || '')
+      };
+    });
 
     s.plans = s.plans.map(function (p) {
       return {

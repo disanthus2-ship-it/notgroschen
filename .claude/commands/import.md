@@ -89,8 +89,11 @@ Korrekturen einarbeiten und erneut vorlegen, bis es passt.
 3. **Ändere keine bestehende `id`.** Szenarien und Zuordnungen hängen daran.
 4. Neue IDs nachvollziehbar vergeben: `tx_import_<JJJJ-MM>_<lfd>` bzw.
    `itm_import_<lfd>`.
-5. Setze `meta.updated` auf die aktuelle Zeit. Lass `settings`, `fire` und
-   `plans` unangetastet.
+5. Setze `meta.updated` auf die aktuelle Zeit. Lass `settings`, `fire`,
+   `plans` und `investments` unangetastet. Aus einem Kontoauszug lässt sich kein
+   Depotbestand ableiten; erkennst du eine regelmäßige Einzahlung in ein Depot,
+   wird daraus ein Posten in `items` (Kategorie `cat_saving`) — die Verknüpfung
+   zum Investment stellt die Person danach in der App her.
 6. Beträge unverändert übernehmen — nicht runden, nicht glätten. `amount` ist
    immer positiv, die Richtung steckt in `kind`.
 

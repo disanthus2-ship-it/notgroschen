@@ -177,7 +177,8 @@ HB.views = HB.views || {};
         U.el('div', { class: 'stack' }, [
           miniRow('Einnahmen', s.household.income),
           miniRow('Ausgaben', s.household.expense),
-          miniRow('Von den Personen zu tragen', s.householdNetCost)
+          miniRow('Von den Personen zu tragen', s.householdNetCost),
+          miniRow('Gesamtvermögen', C.totalAssets(state))
         ]),
         state.household.budget
           ? ui.meter({ used: s.household.expense, budget: state.household.budget, label: 'Haushaltsbudget' })

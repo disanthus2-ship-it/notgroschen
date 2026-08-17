@@ -44,4 +44,4 @@ for f in js/*.js js/views/*.js; do node --check "$f"; done
 ```
 
 Danach `index.html` im Browser öffnen, den Beispielhaushalt laden und alle
-sieben Ansichten in beiden Designs auf Konsolenfehler durchsehen.
+acht Ansichten in beiden Designs auf Konsolenfehler durchsehen.

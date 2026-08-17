@@ -24,6 +24,11 @@ const INTERVALS = {
   yearly: 1 / 12
 };
 
+const INVESTMENT_TYPES = [
+  'etf', 'aktien', 'fonds', 'anleihen', 'fixzins', 'tagesgeld', 'bausparer',
+  'versicherung', 'vorsorge', 'immobilie', 'edelmetall', 'krypto', 'sonstiges'
+];
+
 const KINDS = ['income', 'expense'];
 const SCOPES = ['person', 'item', 'category', 'household', 'all', 'oneoff'];
 const MODES = ['percent', 'delta', 'set'];
@@ -73,7 +78,7 @@ function checkTop(data) {
   if (data.app != null && data.app !== 'notgroschen') {
     warn('app', `Feld "app" ist ${JSON.stringify(data.app)}, erwartet wird "notgroschen".`);
   }
-  for (const key of ['people', 'categories', 'items', 'transactions', 'plans']) {
+  for (const key of ['people', 'categories', 'items', 'transactions', 'investments', 'plans']) {
     if (data[key] != null && !Array.isArray(data[key])) {
       err(key, 'Muss ein Array sein.');
     }
@@ -264,6 +269,53 @@ function checkTransactions(data, personIds, cats) {
   });
 }
 
+function checkInvestments(data, personIds, itemIds) {
+  const list = data.investments || [];
+  uniqueIds(list, 'investments');
+
+  // Ein Posten, der an mehreren Investments als Sparplan hängt, erscheint dort
+  // mehrfach — erlaubt, aber fast immer ein Versehen.
+  const linkUse = new Map();
+
+  list.forEach((inv, i) => {
+    const at = `investments[${i}]${inv?.label ? ` („${inv.label}")` : ''}`;
+    if (!isObj(inv)) { err(`investments[${i}]`, 'Muss ein Objekt sein.'); return; }
+    if (typeof inv.label !== 'string' || !inv.label.trim()) err(at, 'Feld "label" fehlt oder ist leer.');
+
+    if (!INVESTMENT_TYPES.includes(inv.type)) {
+      err(at, `"type" ${JSON.stringify(inv.type)} ist unbekannt. Die App würde daraus "sonstiges" machen. Erlaubt: ${INVESTMENT_TYPES.join(', ')}.`);
+    }
+    if (!isNum(inv.currentValue)) {
+      err(at, `"currentValue" muss eine Zahl sein, ist ${JSON.stringify(inv.currentValue)}.`);
+    } else if (inv.currentValue < 0) {
+      err(at, '"currentValue" ist negativ. Ein Bestand kann nicht kleiner als 0 sein.');
+    }
+    if (inv.costBasis != null && (!isNum(inv.costBasis) || inv.costBasis < 0)) {
+      err(at, '"costBasis" muss null oder eine Zahl ≥ 0 sein.');
+    }
+    if (inv.expectedReturnPct != null && !isNum(inv.expectedReturnPct)) {
+      err(at, '"expectedReturnPct" muss null oder eine Zahl sein.');
+    }
+    checkRef(at, inv.owner, personIds);
+
+    if (inv.linkedItemId != null) {
+      if (!itemIds.has(inv.linkedItemId)) {
+        err(at, `"linkedItemId" ${JSON.stringify(inv.linkedItemId)} ist kein bekannter Posten. Die App würde die Verknüpfung beim Import kappen.`);
+      } else {
+        const it = (data.items || []).find((x) => x.id === inv.linkedItemId);
+        if (it && it.kind !== 'expense') {
+          warn(at, 'Der verknüpfte Sparplan-Posten ist als Einnahme angelegt — eine Einzahlung ist eine Ausgabe.');
+        }
+        if (linkUse.has(inv.linkedItemId)) {
+          warn(at, `Der Posten ist bereits bei investments[${linkUse.get(inv.linkedItemId)}] als Sparplan hinterlegt; die Rate erscheint dann bei beiden.`);
+        } else {
+          linkUse.set(inv.linkedItemId, i);
+        }
+      }
+    }
+  });
+}
+
 function checkPlans(data, personIds, itemIds, cats) {
   const plans = data.plans || [];
   uniqueIds(plans, 'plans');
@@ -371,6 +423,23 @@ function summarise(data, month) {
     add(t.owner, t.kind, t.categoryId, t.amount);
   }
 
+  // Portfolio: Bestand, Einstand und gewichtete Renditeerwartung
+  let invTotal = 0, invCost = 0, invCostKnown = 0, weighted = 0, weightBase = 0;
+  for (const inv of data.investments || []) {
+    if (!isObj(inv)) continue;
+    const v = Number(inv.currentValue) || 0;
+    invTotal += v;
+    if (inv.costBasis != null && Number.isFinite(Number(inv.costBasis))) {
+      invCost += Number(inv.costBasis);
+      invCostKnown += v;
+    }
+    if (inv.expectedReturnPct != null && Number.isFinite(Number(inv.expectedReturnPct)) && v > 0) {
+      weighted += v * Number(inv.expectedReturnPct);
+      weightBase += v;
+    }
+  }
+  const otherAssets = Number(data.household?.assets) || 0;
+
   const topCats = [...byCat.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
@@ -379,7 +448,10 @@ function summarise(data, month) {
   return {
     month, income, expense, net: income - expense, saving,
     savingsRate: income > 0 ? (income - expense + saving) / income : 0,
-    activeItems, monthTx, byOwner, names, topCats
+    activeItems, monthTx, byOwner, names, topCats,
+    invTotal, invCost, invGain: invCostKnown - invCost,
+    invReturn: weightBase > 0 ? weighted / weightBase : null,
+    otherAssets, totalAssets: otherAssets + invTotal
   };
 }
 
@@ -400,6 +472,9 @@ function report(file, data, sum, asJson) {
         month: sum.month,
         income: sum.income, expense: sum.expense, net: sum.net,
         savingContributions: sum.saving, savingsRate: sum.savingsRate,
+        totalAssets: sum.totalAssets, otherAssets: sum.otherAssets,
+        investmentTotal: sum.invTotal, investmentGain: sum.invGain,
+        portfolioReturnPct: sum.invReturn,
         counts: {
           people: (data.people || []).length,
           categories: (data.categories || []).length,
@@ -407,6 +482,7 @@ function report(file, data, sum, asJson) {
           activeItemsThisMonth: sum.activeItems,
           transactions: (data.transactions || []).length,
           transactionsThisMonth: sum.monthTx,
+          investments: (data.investments || []).length,
           plans: (data.plans || []).length
         }
       }
@@ -422,7 +498,19 @@ function report(file, data, sum, asJson) {
   console.log(`  Kategorien            ${(data.categories || []).length}`);
   console.log(`  Wiederkehrende Posten ${(data.items || []).length}  (${sum.activeItems} wirksam in ${sum.month})`);
   console.log(`  Einzelbuchungen       ${(data.transactions || []).length}  (${sum.monthTx} in ${sum.month})`);
+  console.log(`  Investments           ${(data.investments || []).length}`);
   console.log(`  Szenarien             ${(data.plans || []).length}`);
+
+  console.log(`\nVermögen`);
+  console.log(`  Investments           ${eur.format(sum.invTotal).padStart(12)}`);
+  console.log(`  Sonstiges Vermögen    ${eur.format(sum.otherAssets).padStart(12)}`);
+  console.log(`  Gesamt                ${eur.format(sum.totalAssets).padStart(12)}`);
+  if (sum.invCost > 0) {
+    console.log(`  Gewinn / Verlust      ${eur.format(sum.invGain).padStart(12)}`);
+  }
+  if (sum.invReturn != null) {
+    console.log(`  Erwartete Rendite     ${(sum.invReturn.toFixed(2) + ' %').padStart(12)}`);
+  }
 
   console.log(`\nMonatsbilanz ${sum.month}`);
   console.log(`  Einnahmen             ${eur.format(sum.income).padStart(12)}`);
@@ -487,6 +575,7 @@ if (checkTop(data)) {
   const cats = checkCategories(data);
   const itemIds = checkItems(data, personIds, cats);
   checkTransactions(data, personIds, cats);
+  checkInvestments(data, personIds, itemIds);
   checkPlans(data, personIds, itemIds, cats);
 }
 

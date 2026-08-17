@@ -309,15 +309,24 @@ HB.views = HB.views || {};
   }
 
   function remove(it) {
+    var linked = S.state.investments.filter(function (inv) { return inv.linkedItemId === it.id; });
+
     ui.confirm({
       title: 'Posten löschen',
       text: '„' + it.label + '“ wird dauerhaft entfernt.',
-      detail: 'Szenario-Anpassungen, die sich auf diesen Posten beziehen, werden mitgelöscht.',
+      detail: 'Szenario-Anpassungen, die sich auf diesen Posten beziehen, werden mitgelöscht.' +
+        (linked.length
+          ? ' Der Posten ist als Sparplan von „' + linked.map(function (i) { return i.label; }).join('“, „') +
+            '“ hinterlegt; diese Verknüpfung entfällt, die Investments selbst bleiben erhalten.'
+          : ''),
       confirmLabel: 'Löschen', danger: true
     }).then(function (ok) {
       if (!ok) return;
       S.update(function (st) {
         st.items = st.items.filter(function (x) { return x.id !== it.id; });
+        st.investments.forEach(function (inv) {
+          if (inv.linkedItemId === it.id) inv.linkedItemId = null;
+        });
         st.plans.forEach(function (pl) {
           pl.adjustments = pl.adjustments.filter(function (a) {
             return !(a.scope === 'item' && a.targetId === it.id);

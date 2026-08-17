@@ -81,26 +81,43 @@ HB.views = HB.views || {};
     var assetsIn = ui.numInput(state.household.assets, {
       onchange: function (e) {
         var v = U.parseNum(e.target.value);
-        S.update(function (st) {
-          st.household.assets = v;
-          if (!st.fire.startAssets) st.fire.startAssets = v;
-        }, 'household');
+        S.update(function (st) { st.household.assets = v; }, 'household');
       }
     });
+
+    var portfolio = C.investmentSummary(state);
+    var total = C.totalAssets(state);
 
     return ui.card({
       title: 'Haushalt',
       sub: 'Gilt für alle Auswertungen',
-      body: U.el('div', { class: 'form-grid' }, [
-        ui.field('Name des Haushalts', nameIn),
-        ui.field('Verteilungsschlüssel gemeinsamer Kosten', splitSel,
-          state.settings.splitMode === 'custom'
-            ? 'Prozentsätze je Person unten eintragen; sie werden auf 100 % normalisiert.'
-            : state.settings.splitMode === 'income'
-              ? 'Wer mehr verdient, trägt anteilig mehr.'
-              : 'Alle tragen denselben Anteil.'),
-        ui.field('Monatliches Haushaltsbudget (€)', budgetIn, 'Obergrenze für gemeinsame Ausgaben, optional'),
-        ui.field('Vorhandenes Vermögen (€)', assetsIn, 'Startwert für Projektion und FIRE-Rechnung')
+      body: U.el('div', {}, [
+        U.el('div', { class: 'form-grid' }, [
+          ui.field('Name des Haushalts', nameIn),
+          ui.field('Verteilungsschlüssel gemeinsamer Kosten', splitSel,
+            state.settings.splitMode === 'custom'
+              ? 'Prozentsätze je Person unten eintragen; sie werden auf 100 % normalisiert.'
+              : state.settings.splitMode === 'income'
+                ? 'Wer mehr verdient, trägt anteilig mehr.'
+                : 'Alle tragen denselben Anteil.'),
+          ui.field('Monatliches Haushaltsbudget (€)', budgetIn, 'Obergrenze für gemeinsame Ausgaben, optional'),
+          ui.field('Sonstiges Vermögen (€)', assetsIn, 'Girokonto, Bargeld, Sparbuch — alles außerhalb der Investments')
+        ]),
+        U.el('div', { class: 'callout' }, [
+          U.el('div', {}, [
+            'Gesamtvermögen: ',
+            U.el('strong', { text: U.currency(total, { digits: 0 }) }),
+            ' — ' + U.currency(state.household.assets || 0, { digits: 0 }) + ' sonstiges Vermögen plus ' +
+            U.currency(portfolio.total, { digits: 0 }) + ' aus ' + portfolio.count +
+            (portfolio.count === 1 ? ' Investment' : ' Investments') + '.'
+          ]),
+          U.el('div', { style: { marginTop: '6px' } }, [
+            U.el('button', {
+              class: 'btn btn-sm', text: 'Investments verwalten',
+              onclick: function () { HB.app.go('investments'); }
+            })
+          ])
+        ])
       ])
     });
   }
@@ -268,7 +285,8 @@ HB.views = HB.views || {};
     var state = S.state;
     var items = state.items.filter(function (i) { return i.owner === p.id; });
     var txs = state.transactions.filter(function (t) { return t.owner === p.id; });
-    var count = items.length + txs.length;
+    var invs = state.investments.filter(function (i) { return i.owner === p.id; });
+    var count = items.length + txs.length + invs.length;
 
     var modeSel = ui.select([
       { value: 'household', label: 'Auf den Haushalt umschreiben' },
@@ -280,8 +298,9 @@ HB.views = HB.views || {};
       body: U.el('div', {}, [
         U.el('p', {
           text: count
-            ? 'Dieser Person sind ' + items.length + ' Posten und ' + txs.length + ' Buchungen zugeordnet.'
-            : 'Dieser Person sind keine Posten oder Buchungen zugeordnet.'
+            ? 'Dieser Person sind ' + items.length + ' Posten, ' + txs.length + ' Buchungen und ' +
+              invs.length + ' Investments zugeordnet.'
+            : 'Dieser Person sind keine Posten, Buchungen oder Investments zugeordnet.'
         }),
         count ? ui.field('Was soll damit geschehen?', modeSel) : null,
         U.el('p', { class: 'small muted', text: 'Auch Szenario-Anpassungen, die sich auf diese Person beziehen, werden entfernt.' })
@@ -296,9 +315,17 @@ HB.views = HB.views || {};
               if (mode === 'delete') {
                 st.items = st.items.filter(function (i) { return i.owner !== p.id; });
                 st.transactions = st.transactions.filter(function (t) { return t.owner !== p.id; });
+                st.investments = st.investments.filter(function (i) { return i.owner !== p.id; });
+                // Verweise auf soeben gelöschte Sparplan-Posten kappen.
+                var alive = {};
+                st.items.forEach(function (i) { alive[i.id] = true; });
+                st.investments.forEach(function (i) {
+                  if (i.linkedItemId && !alive[i.linkedItemId]) i.linkedItemId = null;
+                });
               } else {
                 st.items.forEach(function (i) { if (i.owner === p.id) i.owner = 'household'; });
                 st.transactions.forEach(function (t) { if (t.owner === p.id) t.owner = 'household'; });
+                st.investments.forEach(function (i) { if (i.owner === p.id) i.owner = 'household'; });
               }
               st.plans.forEach(function (pl) {
                 pl.adjustments = pl.adjustments.filter(function (a) { return a.targetId !== p.id; });

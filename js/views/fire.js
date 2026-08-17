@@ -95,9 +95,44 @@ HB.views = HB.views || {};
       placeholder: 'aus dem Budget', oninput: bind('annualSpendOverride')
     });
 
+    /**
+     * Startvermögen und Rendite folgen demselben Muster wie die Sparrate:
+     * leer heißt automatisch, hier aus dem erfassten Vermögen und dem Portfolio.
+     */
+    function autoField(key, label, attrs, autoLabel, hint) {
+      var isAuto = f[key] == null || f[key] === '';
+      var input = ui.numInput(isAuto ? null : f[key], Object.assign({
+        placeholder: 'automatisch', disabled: isAuto, oninput: bind(key)
+      }, attrs || {}));
+
+      var box = U.el('input', {
+        type: 'checkbox', checked: isAuto,
+        onchange: function (e) {
+          input.disabled = e.target.checked;
+          if (e.target.checked) { f[key] = null; input.value = ''; }
+          else f[key] = U.parseNum(input.value);
+          S.touch();
+          onChange();
+        }
+      });
+
+      return U.el('div', {}, [
+        ui.field(label, input, hint),
+        U.el('label', { class: 'checkline', style: { margin: '-6px 0 12px' } }, [
+          box, U.el('span', { class: 'small', text: autoLabel })
+        ])
+      ]);
+    }
+
+    var portfolio = C.investmentSummary(state);
+    var total = C.totalAssets(state);
+
     var body = U.el('div', {}, [
-      ui.field('Startvermögen (€)', ui.numInput(f.startAssets, { oninput: bind('startAssets') }),
-        'Alles, was schon angelegt ist'),
+      autoField('startAssets', 'Startvermögen (€)', null,
+        'automatisch: ' + U.currency(total, { digits: 0 }) + ' Gesamtvermögen',
+        portfolio.count
+          ? portfolio.count + (portfolio.count === 1 ? ' Investment' : ' Investments') + ' plus sonstiges Vermögen'
+          : 'Sonstiges Vermögen; Investments sind noch keine erfasst'),
 
       ui.field('Monatliche Sparrate (€)', contribIn),
       U.el('label', { class: 'checkline', style: { margin: '-6px 0 12px' } }, [
@@ -110,8 +145,11 @@ HB.views = HB.views || {};
 
       U.el('div', { class: 'section-title', text: 'Kapitalmarkt' }),
 
-      ui.field('Erwartete Rendite (% p. a.)',
-        ui.numInput(f.returnPct, { step: '0.1', oninput: bind('returnPct') }), 'nominal, vor Inflation'),
+      autoField('returnPct', 'Erwartete Rendite (% p. a.)', { step: '0.1' },
+        portfolio.weightedReturn == null
+          ? 'automatisch: 6 % (keine Investments erfasst)'
+          : 'automatisch: ' + U.num(portfolio.weightedReturn, 2) + ' % aus dem Portfolio',
+        'nominal, vor Inflation'),
       ui.field('Inflation (% p. a.)',
         ui.numInput(f.inflationPct, { step: '0.1', oninput: bind('inflationPct') })),
       ui.field('Sichere Entnahmerate (% p. a.)',
@@ -268,7 +306,10 @@ HB.views = HB.views || {};
         line('Angesetzte Jahresausgaben im Ruhestand', U.currency(r.annualSpend, { digits: 0 })),
         line('Entnahmerate', U.num(r.swr * 100, 2) + ' %'),
         line('FIRE-Zahl = Jahresausgaben ÷ Entnahmerate', U.currency(r.fireNumber, { digits: 0 })),
+        line('Angesetzte Rendite' + (r.returnIsAuto ? ' (aus dem Portfolio)' : ''), U.num(r.returnPct, 2) + ' %'),
         line('Realrendite = (1 + Rendite) ÷ (1 + Inflation) − 1', U.num(r.realAnnual * 100, 2) + ' %'),
+        line('Startvermögen' + (r.startAssetsIsAuto ? ' (Investments + sonstiges)' : ''),
+          U.currency(r.startAssets, { digits: 0 })),
         line('Bis zum Ziel eingezahlt', r.reached ? U.currency(r.contributedTotal, { digits: 0 }) : '—'),
         U.el('div', { class: 'callout', style: { marginTop: '12px' } }, [
           'Die Rechnung unterstellt eine konstante Realrendite. Reale Märkte schwanken; ' +

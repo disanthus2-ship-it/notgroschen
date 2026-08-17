@@ -65,6 +65,7 @@ Arbeitsspeicher. Der Weg über die Datei ist der einzige verlässliche.
   "categories":  [ … ],
   "items":       [ … ],           // wiederkehrende Posten
   "transactions":[ … ],           // Einzelbuchungen mit Datum
+  "investments": [ … ],           // Geldanlagen (Vermögensseite)
   "plans":       [ … ],           // Szenarien
   "fire":        { … }
 }
@@ -101,7 +102,12 @@ Fasse `settings` bei einem Datenimport nicht an — das sind Anzeigevorlieben.
 | Feld | Typ | Bedeutung |
 |---|---|---|
 | `budget` | Zahl oder `null` | monatliche Obergrenze für gemeinsame Ausgaben |
-| `assets` | Zahl | vorhandenes Vermögen, Startwert für Projektion und FIRE |
+| `assets` | Zahl | Vermögen **außerhalb** der Investments — Girokonto, Bargeld, Sparbuch |
+
+> `assets` ist nicht das Gesamtvermögen. Die App rechnet
+> **Gesamtvermögen = `household.assets` + Summe aller `investments[].currentValue`**
+> und verwendet diese Summe als Startwert für Projektion und FIRE-Rechnung.
+> Ein Bestand, der hier steht und zugleich als Investment erfasst ist, zählt doppelt.
 
 ### `people[]`
 
@@ -198,6 +204,50 @@ den ihr Datum fällt. Sie ersetzen keinen Posten. Eine Supermarktabbuchung ist
 also nur dann eine Buchung, wenn es daneben keinen laufenden Posten
 „Lebensmittel" gibt — sonst zählst du sie doppelt. Siehe § 4.
 
+### `investments[]` — Geldanlagen
+
+```jsonc
+{
+  "id": "inv_…",
+  "label": "MSCI World ETF",
+  "type": "etf",               // siehe Tabelle unten
+  "owner": "household",        // "household" oder eine people[].id
+  "currentValue": 21400,       // aktueller Wert, zählt zum Gesamtvermögen
+  "costBasis": 18200,          // Einstandswert (Summe der Einzahlungen) oder null
+  "expectedReturnPct": 6.5,    // Renditeerwartung p. a. nominal, oder null
+  "linkedItemId": "itm_…",     // Verweis auf den Sparplan-Posten, oder null
+  "provider": "Depotbank",
+  "note": ""
+}
+```
+
+Erlaubte `type`-Werte — alles andere wird beim Import zu `sonstiges`:
+
+| Schlüssel | Anlageart | Schlüssel | Anlageart |
+|---|---|---|---|
+| `etf` | ETF | `versicherung` | Lebens-/Rentenversicherung |
+| `aktien` | Aktien (Einzelwerte) | `vorsorge` | Betriebliche Vorsorge |
+| `fonds` | Investmentfonds | `immobilie` | Immobilie |
+| `anleihen` | Anleihen | `edelmetall` | Edelmetalle & Rohstoffe |
+| `fixzins` | Fixzinssparen | `krypto` | Kryptowährungen |
+| `tagesgeld` | Tages- & Festgeld | `sonstiges` | Sonstiges |
+| `bausparer` | Bausparvertrag | | |
+
+**Ein Investment erzeugt keinen Geldfluss.** Es ist reine Bestandsführung. Die
+monatliche Einzahlung ist ein ganz normaler Posten in `items` (Kategorie
+`cat_saving`), und `linkedItemId` verweist darauf. Genau diese Trennung
+verhindert, dass eine Sparrate doppelt zählt — einmal als Ausgabe im Budget und
+noch einmal als Vermögenszuwachs.
+
+Beim Anlegen eines Investments mit Sparplan also **beides** erzeugen: den Posten
+in `items` und das Investment mit `linkedItemId` darauf. Existiert der Posten
+schon, nur verknüpfen — keinen zweiten anlegen.
+
+`expectedReturnPct` speist die nach Wert gewichtete Portfoliorendite, die
+Projektion und FIRE-Rechnung als Vorgabe verwenden. Positionen ohne
+Renditeerwartung (`null`) bleiben aus diesem Durchschnitt heraus, ziehen ihn
+also nicht künstlich nach unten.
+
 ### `plans[]` — Szenarien
 
 ```jsonc
@@ -239,10 +289,10 @@ Wirkung der Modi:
 
 ```jsonc
 {
-  "startAssets": 42000,
+  "startAssets": null,           // null = automatisch: Gesamtvermögen inkl. Investments
   "monthlyContribution": null,   // null = automatisch aus dem Haushaltssaldo
   "contributionGrowthPct": 0,
-  "returnPct": 6,                // nominal p. a.
+  "returnPct": null,             // null = automatisch: gewichtete Portfoliorendite
   "inflationPct": 2,
   "withdrawalPct": 3.5,
   "annualSpendOverride": null,   // null = aus dem Budget abgeleitet
@@ -252,7 +302,10 @@ Wirkung der Modi:
 }
 ```
 
-Annahmen der Person — bei einem Datenimport nicht verändern.
+Annahmen der Person — bei einem Datenimport nicht verändern. Bei `startAssets`,
+`monthlyContribution` und `returnPct` bedeutet `null` jeweils „automatisch
+ableiten"; ein gesetzter Wert überschreibt die Ableitung. Ohne Investments
+fällt die automatische Rendite auf 6 % zurück.
 
 ---
 
@@ -269,6 +322,8 @@ nicht darauf.
 | `owner` zeigt auf eine nicht existierende Person | wird zu `"household"` |
 | `categoryId` existiert nicht | wird zu `cat_salary` bzw. `cat_other` |
 | `interval` unbekannt | wird zu `"monthly"` — ein Jahresbetrag zählt dann zwölffach |
+| `investments[].type` unbekannt | wird zu `"sonstiges"` |
+| `linkedItemId` zeigt auf einen gelöschten Posten | wird auf `null` gesetzt |
 | `kind` ist etwas anderes als `"income"` | wird zu `"expense"` |
 | `amount` nicht als Zahl lesbar | wird zu `0` |
 
@@ -281,6 +336,11 @@ nicht darauf.
   Ausgabe unter „Gehalt & Lohn" auf.
 - **Negative Beträge.** `amount` muss positiv sein; die Richtung steckt
   ausschließlich in `kind`. Ein negativer Ausgabenbetrag senkt die Ausgaben.
+  Dasselbe gilt für `currentValue` eines Investments.
+- **Doppelt erfasstes Vermögen.** Ein Bestand gehört entweder in
+  `household.assets` oder in `investments` — nie in beides.
+- **Doppelt belegte Sparpläne.** Hängt derselbe Posten an mehreren Investments,
+  erscheint seine Rate bei jedem davon.
 - **Szenario-Ziele.** Ein `targetId`, das ins Leere zeigt, wirkt einfach nicht.
 - **`end` vor `start`** ergibt einen Posten, der nie zählt.
 - **Datumsformate.** `date` ist `JJJJ-MM-TT`, alle Monatsfelder sind `JJJJ-MM`.
@@ -386,7 +446,9 @@ du bewusst in Kauf nehmen, dann aber begründet im Bericht.
 - Bestehende Einträge nicht umkategorisieren, ohne es zu erwähnen. Die
   Zuordnung ist oft eine bewusste Entscheidung der Person.
 - `settings`, `fire` und `plans` bei einem reinen Datenimport unangetastet
-  lassen.
+  lassen. Auch `investments` gehört nicht dazu: Aus einem Kontoauszug lässt sich
+  kein Depotbestand ableiten — höchstens ein Sparplan-Posten, und der gehört
+  nach `items`.
 - Beträge nicht runden oder glätten. Übernimm sie so, wie sie in der Quelle
   stehen.
 - Bei unklarer Zuordnung nicht raten, sondern eine nachvollziehbare Vorgabe
@@ -439,10 +501,17 @@ Eine gültige Datei mit zwei Personen, einem Posten und einer Buchung:
       "kind": "expense", "owner": "household", "categoryId": "cat_other", "note": ""
     }
   ],
+  "investments": [
+    {
+      "id": "inv_1", "label": "MSCI World ETF", "type": "etf", "owner": "household",
+      "currentValue": 21400, "costBasis": 18200, "expectedReturnPct": 6.5,
+      "linkedItemId": null, "provider": "Depotbank", "note": ""
+    }
+  ],
   "plans": [],
   "fire": {
-    "startAssets": 0, "monthlyContribution": null, "contributionGrowthPct": 0,
-    "returnPct": 6, "inflationPct": 2, "withdrawalPct": 3.5,
+    "startAssets": null, "monthlyContribution": null, "contributionGrowthPct": 0,
+    "returnPct": null, "inflationPct": 2, "withdrawalPct": 3.5,
     "annualSpendOverride": null, "spendFactor": 100, "coastYears": 20, "maxYears": 60
   }
 }
@@ -471,6 +540,15 @@ Sparquote             = (Monatssaldo + Sparbeiträge) ÷ Einnahmen
 ```
 
 „Sparbeiträge" sind alle Ausgabenposten in Kategorien mit `"saving": true`.
+
+Für die Vermögensseite:
+
+```
+Gesamtvermögen    = household.assets + Σ investments[].currentValue
+Gewinn            = Σ currentValue − Σ costBasis   (nur Positionen mit costBasis)
+Portfoliorendite  = Σ (currentValue × expectedReturnPct) ÷ Σ currentValue
+                    (nur Positionen mit gesetzter Renditeerwartung)
+```
 
 Der Schlüssel folgt `settings.splitMode`: proportional zum Einkommen, zu
 gleichen Teilen, oder nach `people[].sharePct` (auf 100 % normalisiert).

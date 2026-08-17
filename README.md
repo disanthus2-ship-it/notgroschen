@@ -66,6 +66,27 @@ Monatssaldo des Haushalts.
 * **Kategorien** sind frei erweiterbar. Kategorien mit dem Merkmal *Sparen* zählen
   in der Sparquote als Vermögensaufbau und nicht als Konsum.
 
+### Investments
+
+Aktien, ETFs, Fonds, Fixzinssparen, Bausparer, Vorsorgeprodukte, Immobilien —
+je Person oder gemeinsam. Erfasst werden aktueller Wert, Einstandswert und eine
+Renditeerwartung; daraus ergeben sich Gewinn/Verlust je Position, die Aufteilung
+nach Anlageart und Träger sowie die nach Wert gewichtete Portfoliorendite.
+
+Zwei Kopplungen machen daraus mehr als eine Liste:
+
+* **Das Gesamtvermögen** ist die Summe der Investments plus dem Feld „sonstiges
+  Vermögen“ (Girokonto, Bargeld). Es ist der Startwert für Projektion und
+  FIRE-Rechnung.
+* **Die Portfoliorendite** wird in Projektion und FIRE als Vorgabe gesetzt und
+  bleibt überschreibbar — für ein schnelles „was, wenn es nur 4 % werden“.
+
+Läuft zu einem Investment ein Sparplan, wird er mit dem passenden Posten
+**verknüpft** statt doppelt erfasst: Der Geldfluss bleibt im Budget, das
+Investment ist die Vermögensseite. Im Formular lässt sich der Posten in einem
+Zug miterzeugen. So kann eine Sparrate nicht zugleich als Ausgabe und als
+Vermögenszuwachs gezählt werden.
+
 ### Sankey-Diagramm
 
 Das Flussdiagramm zeigt, wohin das Geld geht, in zwei Lesarten:
@@ -108,6 +129,9 @@ Realrendite  = (1 + Rendite) ÷ (1 + Inflation) − 1
 FIRE-Zahl    = Jahresausgaben ÷ Entnahmerate
 Coast-Zahl   = FIRE-Zahl ÷ (1 + Realrendite)^Horizont
 ```
+
+Startvermögen und Rendite kommen wahlweise automatisch aus den Investments oder
+von Hand — dasselbe Muster wie bei der Sparrate: Feld leer heißt „ableiten“.
 
 Die Jahresausgaben werden aus dem Budget abgeleitet — **ohne die Sparbeiträge**,
 denn im Ruhestand wird nicht mehr gespart — und lassen sich mit einem
@@ -189,7 +213,7 @@ js/
   sankey.js           Layout-Algorithmus und SVG-Rendering
   charts.js           Linien- und Säulendiagramme
   components.js       Karten, Kennzahlen, Meter, Modal, Formularfelder
-  views/              Die sieben Ansichten
+  views/              Die acht Ansichten
   app.js              Router, Theme, Datei-Ein-/Ausgabe
 ```
 
@@ -210,6 +234,9 @@ Bleibt übrig(Person)   = Einnahmen − eigene Ausgaben − Anteil
 
 Monatssaldo            = Einnahmen − Ausgaben  (= Σ „Bleibt übrig“)
 Sparquote              = (Monatssaldo + Sparbeiträge) ÷ Einnahmen
+
+Gesamtvermögen         = sonstiges Vermögen + Σ Investments
+Portfoliorendite       = Σ (Wert × Renditeerwartung) ÷ Σ Wert
 ```
 
 ## Grenzen

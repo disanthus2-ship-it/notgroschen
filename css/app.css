@@ -540,3 +540,27 @@ table.tbl tfoot td {
 .crosshair { stroke: var(--baseline); stroke-width: 1; pointer-events: none; }
 .hover-dot { pointer-events: none; }
 .chart-overlay { fill: transparent; cursor: crosshair; }
+
+/* --- Aufteilungsbalken (Portfolio) ----------------------------------------- */
+
+.alloc-bar {
+  display: flex;
+  gap: 2px;                 /* Flächenfarbe trennt die Segmente, kein Rahmen */
+  height: 14px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-sunk);
+}
+.alloc-bar > span { display: block; min-width: 2px; }
+
+.alloc-rows { margin-top: 14px; display: flex; flex-direction: column; gap: 9px; }
+.alloc-row {
+  display: grid;
+  grid-template-columns: 11px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+}
+.alloc-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alloc-row .val { font-variant-numeric: tabular-nums; font-weight: 600; }
+.alloc-row .share { font-variant-numeric: tabular-nums; color: var(--text-muted); font-size: 12px; min-width: 44px; text-align: right; }

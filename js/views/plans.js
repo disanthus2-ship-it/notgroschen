@@ -12,7 +12,7 @@ HB.views = HB.views || {};
 
   var U = HB.util, C = HB.calc, S = HB.store, ui = HB.ui;
 
-  var view = { from: null, months: null, returnPct: 4, active: {} };
+  var view = { from: null, months: null, returnPct: null, active: {} };
 
   function selected(state) {
     return state.plans.filter(function (p) { return view.active[p.id]; });
@@ -22,6 +22,11 @@ HB.views = HB.views || {};
     var state = S.state;
     if (!view.from) view.from = state.settings.startMonth || U.monthKey();
     if (!view.months) view.months = state.settings.projectionMonths || 60;
+    // Vorgabe aus dem Portfolio; bleibt in der Filterleiste überschreibbar.
+    if (view.returnPct == null) {
+      var pr = C.portfolioReturn(state);
+      view.returnPct = pr == null ? 4 : Math.round(pr * 10) / 10;
+    }
 
     root.appendChild(U.el('div', { class: 'view-head' }, [
       U.el('div', {}, [
@@ -40,11 +45,11 @@ HB.views = HB.views || {};
     var plans = selected(state);
     var base = C.project(state, {
       from: view.from, months: view.months, plans: [],
-      startAssets: state.household.assets || 0, returnPct: view.returnPct
+      startAssets: C.totalAssets(state), returnPct: view.returnPct
     });
     var scen = plans.length ? C.project(state, {
       from: view.from, months: view.months, plans: plans,
-      startAssets: state.household.assets || 0, returnPct: view.returnPct
+      startAssets: C.totalAssets(state), returnPct: view.returnPct
     }) : null;
 
     root.appendChild(outlookStats(base, scen));
@@ -79,10 +84,13 @@ HB.views = HB.views || {};
       S.update(function (st) { st.settings.projectionMonths = view.months; }, 'settings');
     })));
 
+    var pr = C.portfolioReturn(state);
     bar.appendChild(ui.field('Rendite auf Vermögen (% p. a.)', ui.numInput(view.returnPct, {
       step: '0.5', style: 'width:110px',
       onchange: function (e) { view.returnPct = U.parseNum(e.target.value); HB.app.repaint(); }
-    }), 'nominal, auf den Bestand'));
+    }), pr == null
+      ? 'nominal, auf den Bestand'
+      : 'Vorgabe aus dem Portfolio: ' + U.num(pr, 2) + ' %'));
 
     if (state.plans.length) {
       bar.appendChild(ui.field('Aktive Szenarien',
@@ -172,7 +180,7 @@ HB.views = HB.views || {};
     return ui.chartCard({
       title: 'Vermögensentwicklung',
       sub: U.monthLabel(view.from, 'long') + ' bis ' + U.monthLabel(base[base.length - 1].key, 'long') +
-        ' · Startvermögen ' + U.currency(S.state.household.assets || 0, { digits: 0 }),
+        ' · Startvermögen ' + U.currency(C.totalAssets(S.state), { digits: 0 }),
       chart: function () {
         return HB.charts.line({
           labels: labels, series: series, height: 320, width: 1120,

@@ -30,6 +30,32 @@ window.HB = window.HB || {};
 
   function perYear(item) { return perMonth(item) * 12; }
 
+  /* --- Anlagearten -------------------------------------------------------- */
+
+  /**
+   * Die Renditen sind Vorgaben für das Formular, keine Prognosen — sie lassen
+   * sich je Investment überschreiben und sind bewusst zurückhaltend gewählt.
+   */
+  var INVESTMENT_TYPES = {
+    etf:         { label: 'ETF',                  defaultReturn: 6.5 },
+    aktien:      { label: 'Aktien (Einzelwerte)', defaultReturn: 7 },
+    fonds:       { label: 'Investmentfonds',      defaultReturn: 5 },
+    anleihen:    { label: 'Anleihen',             defaultReturn: 3 },
+    fixzins:     { label: 'Fixzinssparen',        defaultReturn: 3 },
+    tagesgeld:   { label: 'Tages- & Festgeld',    defaultReturn: 2.5 },
+    bausparer:   { label: 'Bausparvertrag',       defaultReturn: 1.5 },
+    versicherung:{ label: 'Lebens-/Rentenversicherung', defaultReturn: 2 },
+    vorsorge:    { label: 'Betriebliche Vorsorge', defaultReturn: 3 },
+    immobilie:   { label: 'Immobilie',            defaultReturn: 3 },
+    edelmetall:  { label: 'Edelmetalle & Rohstoffe', defaultReturn: 3 },
+    krypto:      { label: 'Kryptowährungen',      defaultReturn: 8 },
+    sonstiges:   { label: 'Sonstiges',            defaultReturn: 3 }
+  };
+
+  function typeLabel(t) {
+    return (INVESTMENT_TYPES[t] || INVESTMENT_TYPES.sonstiges).label;
+  }
+
   /* --- Flüsse eines Monats ------------------------------------------------ */
 
   /**
@@ -288,6 +314,68 @@ window.HB = window.HB || {};
     return summarize(state, monthFlows(state, key, opts));
   }
 
+  /* --- Investments -------------------------------------------------------- */
+
+  /**
+   * Verdichtet das Portfolio: Bestand, Einstand, Gewinn, Aufteilung nach
+   * Anlageart und Träger sowie die nach Wert gewichtete Renditeerwartung.
+   */
+  function investmentSummary(state) {
+    var list = state.investments || [];
+    var res = {
+      count: list.length,
+      total: 0,
+      cost: 0,
+      costKnown: 0,          // Bestandswert der Posten mit bekanntem Einstand
+      gain: 0,
+      gainPct: null,
+      byType: {},
+      byOwner: {},
+      weightedReturn: null,
+      contributionMonthly: 0 // Summe der verknüpften Sparplan-Posten
+    };
+
+    var weighted = 0;
+    var weightBase = 0;
+
+    list.forEach(function (inv) {
+      var v = Number(inv.currentValue) || 0;
+      res.total += v;
+
+      res.byType[inv.type] = (res.byType[inv.type] || 0) + v;
+      res.byOwner[inv.owner] = (res.byOwner[inv.owner] || 0) + v;
+
+      if (inv.costBasis != null) {
+        res.cost += Number(inv.costBasis) || 0;
+        res.costKnown += v;
+      }
+      if (inv.expectedReturnPct != null && v > 0) {
+        weighted += v * Number(inv.expectedReturnPct);
+        weightBase += v;
+      }
+      var it = inv.linkedItemId ? U.byId(state.items, inv.linkedItemId) : null;
+      if (it && it.active !== false) res.contributionMonthly += perMonth(it);
+    });
+
+    res.gain = res.costKnown - res.cost;
+    res.gainPct = res.cost > 0 ? res.gain / res.cost : null;
+    // Nur bewertete Positionen gehen in den Durchschnitt ein; ein Investment
+    // ohne Renditeerwartung zieht das Ergebnis nicht künstlich nach unten.
+    res.weightedReturn = weightBase > 0 ? weighted / weightBase : null;
+
+    return res;
+  }
+
+  /** Vermögen außerhalb der Investments plus Portfoliobestand. */
+  function totalAssets(state) {
+    return (Number(state.household.assets) || 0) + investmentSummary(state).total;
+  }
+
+  /** Gewichtete Renditeerwartung des Portfolios, oder null ohne Investments. */
+  function portfolioReturn(state) {
+    return investmentSummary(state).weightedReturn;
+  }
+
   /* --- Projektion --------------------------------------------------------- */
 
   /**
@@ -300,7 +388,7 @@ window.HB = window.HB || {};
     var from = opts.from || state.settings.startMonth || U.monthKey();
     var months = opts.months || state.settings.projectionMonths || 60;
     var plans = opts.plans || [];
-    var assets = opts.startAssets != null ? opts.startAssets : (state.household.assets || 0);
+    var assets = opts.startAssets != null ? opts.startAssets : totalAssets(state);
     var rMonthly = opts.returnPct ? Math.pow(1 + opts.returnPct / 100, 1 / 12) - 1 : 0;
 
     var rows = [];
@@ -360,14 +448,24 @@ window.HB = window.HB || {};
       ? Number(f.monthlyContribution)
       : autoContribution;
 
-    var nominal = (Number(f.returnPct) || 0) / 100;
+    // Startvermögen und Rendite dürfen leer bleiben: dann kommen sie aus dem
+    // erfassten Vermögen bzw. aus der gewichteten Renditeerwartung des Portfolios.
+    var portfolio = investmentSummary(state);
+    var assetsIsAuto = f.startAssets == null || f.startAssets === '';
+    var startAssets = assetsIsAuto ? totalAssets(state) : Number(f.startAssets);
+
+    var returnIsAuto = f.returnPct == null || f.returnPct === '';
+    var autoReturn = portfolio.weightedReturn == null ? 6 : portfolio.weightedReturn;
+    var returnPct = returnIsAuto ? autoReturn : Number(f.returnPct);
+
+    var nominal = (Number(returnPct) || 0) / 100;
     var infl = (Number(f.inflationPct) || 0) / 100;
     var realAnnual = (1 + nominal) / (1 + infl) - 1;
     var realMonthly = Math.pow(1 + realAnnual, 1 / 12) - 1;
     var growth = (Number(f.contributionGrowthPct) || 0) / 100;
 
     var maxMonths = (Number(f.maxYears) || 60) * 12;
-    var assets = Number(f.startAssets) || 0;
+    var assets = startAssets;
     var series = [{ month: 0, assets: assets, target: fireNumber, contributed: 0 }];
     var reachedAt = assets >= fireNumber ? 0 : null;
     var contributedTotal = 0;
@@ -396,6 +494,13 @@ window.HB = window.HB || {};
       contribution: contribution,
       autoContribution: autoContribution,
       contributionIsAuto: !(f.monthlyContribution != null && f.monthlyContribution !== ''),
+      startAssets: startAssets,
+      startAssetsIsAuto: assetsIsAuto,
+      returnPct: returnPct,
+      returnIsAuto: returnIsAuto,
+      portfolioReturn: portfolio.weightedReturn,
+      portfolioTotal: portfolio.total,
+      otherAssets: Number(state.household.assets) || 0,
       realAnnual: realAnnual,
       swr: swr,
       reached: reachedAt != null,
@@ -551,8 +656,13 @@ window.HB = window.HB || {};
 
   HB.calc = {
     INTERVALS: INTERVALS,
+    INVESTMENT_TYPES: INVESTMENT_TYPES,
+    typeLabel: typeLabel,
     perMonth: perMonth,
     perYear: perYear,
+    investmentSummary: investmentSummary,
+    totalAssets: totalAssets,
+    portfolioReturn: portfolioReturn,
     monthFlows: monthFlows,
     applyPlans: applyPlans,
     summarize: summarize,
