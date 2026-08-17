@@ -1,0 +1,185 @@
+# Notgroschen
+
+Haushalts- und Finanzplanung für Haushalte ab zwei Personen — **lokal-first**,
+browserbasiert, ohne Build, ohne Server, ohne externe Abhängigkeiten.
+
+Alle Daten bleiben auf dem Gerät: automatisch im lokalen Browser-Speicher,
+zusätzlich als JSON-Datei, die du selbst exportierst und wieder lädst. Es gibt
+keinen einzigen Netzwerkaufruf in dieser Anwendung.
+
+## Starten
+
+```
+git clone <repo>
+cd notgroschen
+```
+
+Dann `index.html` doppelklicken — fertig. Die App läuft direkt über `file://`.
+
+> Die Skripte werden bewusst als klassische `<script>`-Tags eingebunden statt als
+> ES-Module. ES-Module werden von allen Browsern über `file://` per CORS blockiert;
+> so bleibt die Aufteilung auf mehrere Dateien erhalten, ohne einen lokalen Server
+> zu erzwingen.
+
+Wer trotzdem einen Server möchte (z. B. um im Netzwerk darauf zuzugreifen):
+
+```
+python3 -m http.server 8000
+# → http://localhost:8000
+```
+
+Beim ersten Start bietet die App einen vollständig ausgefüllten Beispielhaushalt an.
+Er lässt sich jederzeit unter **Daten → Beispielhaushalt laden** wiederholen.
+
+## Was die App kann
+
+### Personen und gemeinsamer Haushalt
+
+Der Haushalt besteht aus beliebig vielen Personen, die dynamisch hinzugefügt
+werden. Jede Person hat eigene Einnahmen, eigene Ausgaben und optional ein
+persönliches Monatsbudget. Der Haushalt als Ganzes hat ebenfalls Einnahmen,
+Ausgaben und ein Gesamtbudget.
+
+Die **gemeinsamen Kosten** werden nach einem wählbaren Schlüssel auf die Personen
+verteilt:
+
+| Schlüssel | Bedeutung |
+|---|---|
+| Nach Einkommen | proportional zum jeweiligen Monatseinkommen |
+| Zu gleichen Teilen | jede Person trägt denselben Anteil |
+| Individuell | frei gesetzte Prozentsätze, auf 100 % normalisiert |
+
+Daraus ergibt sich für jede Person der Betrag, der nach eigenen Ausgaben und
+Haushaltsanteil übrig bleibt. Die Summe dieser Restbeträge entspricht exakt dem
+Monatssaldo des Haushalts.
+
+### Erfassung
+
+* **Wiederkehrende Posten** mit Intervall — wöchentlich, alle zwei Wochen,
+  monatlich, zweimonatlich, quartalsweise, halbjährlich, jährlich. Alles wird auf
+  einen Monatsbetrag normalisiert, ein Jahresposten über 1.200 € zählt also mit
+  100 € pro Monat. Optional mit Start- und Endmonat, sodass auslaufende
+  Kreditraten oder befristete Verträge korrekt abgebildet sind.
+* **Einzelbuchungen** mit konkretem Datum für alles Einmalige. Die Ansicht
+  „Buchungen“ stellt Plan (nur Wiederkehrendes) und Ist (inklusive Buchungen)
+  eines Monats gegenüber.
+* **Kategorien** sind frei erweiterbar. Kategorien mit dem Merkmal *Sparen* zählen
+  in der Sparquote als Vermögensaufbau und nicht als Konsum.
+
+### Sankey-Diagramm
+
+Das Flussdiagramm zeigt, wohin das Geld geht, in zwei Lesarten:
+
+* **über das Gesamtbudget** — Einkommensquellen → Träger → Gesamtbudget →
+  Ausgabenkategorien und Überschuss
+* **direkt je Person** — die Farbe der Person bleibt bis zur Ausgabe erhalten,
+  man sieht also, wessen Geld welche Kategorie deckt
+
+Kleine Kategorien lassen sich unterhalb einer einstellbaren Schwelle zu
+„Sonstige“ bündeln. Jede Bahnbreite entspricht dem Monatsbetrag; ein
+Tabellenumschalter zeigt dieselben Zahlen als Zahlenwerk.
+
+### Planung und Zukunftsaussicht
+
+Ein Szenario bündelt zeitlich begrenzte Anpassungen. Jede Anpassung besteht aus:
+
+* **Wirkungsbereich** — eine Person, ein einzelner Posten, eine Kategorie, alle
+  gemeinsamen Posten, der gesamte Haushalt oder ein einmaliges Ereignis
+* **Modus** — um Prozent verändern, um einen festen Betrag verändern, oder auf
+  einen festen Betrag setzen
+* **Zeitraum** — von Monat bis Monat, offenes Ende möglich
+
+Typische Fälle: „Einkommen Robin −65 % für zwölf Monate (Karenz)“, danach
+„−20 % für zwei Jahre (Teilzeit)“, dazu „Neue Küche 9.500 € im April 2027“.
+Mehrere Szenarien lassen sich gleichzeitig aktivieren und wirken gemeinsam.
+
+Die Projektion vergleicht das Ergebnis über bis zu 20 Jahre mit der
+unveränderten Basis: Vermögensentwicklung, Monatssaldo, Jahresübersicht,
+tiefster Vermögensstand und die Anzahl der Monate mit Deckungslücke.
+
+### FIRE-Kalkulator
+
+Gerechnet wird durchgehend **in heutiger Kaufkraft**: die Nominalrendite wird um
+die Inflation bereinigt, sodass die FIRE-Zahl direkt mit den heutigen Ausgaben
+vergleichbar ist.
+
+```
+Realrendite  = (1 + Rendite) ÷ (1 + Inflation) − 1
+FIRE-Zahl    = Jahresausgaben ÷ Entnahmerate
+Coast-Zahl   = FIRE-Zahl ÷ (1 + Realrendite)^Horizont
+```
+
+Die Jahresausgaben werden aus dem Budget abgeleitet — **ohne die Sparbeiträge**,
+denn im Ruhestand wird nicht mehr gespart — und lassen sich mit einem
+Ausgabenniveau in Prozent skalieren oder ganz überschreiben. Die Sparrate kommt
+wahlweise automatisch aus dem Haushaltssaldo plus den planmäßigen Sparbeiträgen
+oder manuell. Ergebnis: FIRE-Zahl, Jahre bis zur Unabhängigkeit, voraussichtliches
+Datum, monatliche Entnahme und der Coast-FIRE-Fortschritt.
+
+### Darstellung
+
+Zwei Designs: ein helles, das dem Finanzthema entspricht — warmes Papier, tiefe
+Tinte, gedämpftes Waldgrün, wie ein gedruckter Vermögensbericht — und ein dunkles
+Pendant auf kühlem Schiefer. Die Umschaltung folgt wahlweise dem Betriebssystem.
+
+Die kategoriale Serienpalette ist gegen beide Flächenfarben geprüft (OKLab-ΔE,
+Farbfehlsichtigkeit, Kontrast). Jedes Diagramm hat eine Tabellenansicht als
+barrierefreies Gegenstück, Farbe trägt nie allein die Information.
+
+## Datenhaltung
+
+* **Auto-Speicherung** im `localStorage` unter `notgroschen.state.v1` nach jeder
+  Änderung.
+* **Datei-Export/Import** als lesbares JSON. Das ist der Weg für Backups, den
+  Gerätewechsel und das Teilen mit der zweiten Person im Haushalt.
+* Tastenkürzel <kbd>Strg</kbd>/<kbd>Cmd</kbd> + <kbd>S</kbd> speichert als Datei.
+* Eine Datei lässt sich auch einfach ins Fenster ziehen.
+
+Beim Laden ersetzt die Datei den aktuellen Stand vollständig. Ältere Dateien
+werden beim Import migriert: fehlende Felder bekommen Vorgaben, unbekannte Träger
+und Kategorien werden auf gültige Werte zurückgeführt.
+
+## Aufbau
+
+```
+index.html            Grundgerüst, Skript-Reihenfolge
+css/
+  tokens.css          Design-Tokens für Hell und Dunkel
+  app.css             Layout und Komponenten
+js/
+  util.js             Formatierung, Monatsarithmetik, DOM-Helfer
+  store.js            Zustand, localStorage, Datei-Import/Export, Migration
+  calc.js             Normalisierung, Aggregation, Kostenschlüssel,
+                      Szenarien, Projektion, FIRE, Sankey-Graph
+  sankey.js           Layout-Algorithmus und SVG-Rendering
+  charts.js           Linien- und Säulendiagramme
+  components.js       Karten, Kennzahlen, Meter, Modal, Formularfelder
+  views/              Die sieben Ansichten
+  app.js              Router, Theme, Datei-Ein-/Ausgabe
+```
+
+Alles hängt am globalen Namespace `HB`. Die Reihenfolge der `<script>`-Tags in
+`index.html` ist die Abhängigkeitsreihenfolge.
+
+## Rechenmodell in Kurzform
+
+```
+Monatsbetrag(Posten)   = Betrag × Faktor(Intervall)
+Flüsse(Monat)          = aktive Posten im Zeitraum
+                       + Einzelbuchungen des Monats (optional)
+                       + Szenario-Anpassungen
+
+Netto-Haushaltskosten  = Haushaltsausgaben − Haushaltseinnahmen
+Anteil(Person)         = Netto-Haushaltskosten × Schlüssel(Person)
+Bleibt übrig(Person)   = Einnahmen − eigene Ausgaben − Anteil
+
+Monatssaldo            = Einnahmen − Ausgaben  (= Σ „Bleibt übrig“)
+Sparquote              = (Monatssaldo + Sparbeiträge) ÷ Einnahmen
+```
+
+## Grenzen
+
+Die Projektion unterstellt eine konstante Realrendite und gleichbleibende Posten
+außerhalb der Szenarien. Reale Märkte schwanken; gerade die ersten Jahre einer
+Entnahmephase entscheiden über deren Erfolg. Die Zahlen sind eine Größenordnung
+für die eigene Planung, keine Anlageberatung und keine Zusage.
