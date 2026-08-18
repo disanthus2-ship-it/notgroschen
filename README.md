@@ -49,6 +49,11 @@ verteilt:
 | Zu gleichen Teilen | jede Person trägt denselben Anteil |
 | Individuell | frei gesetzte Prozentsätze, auf 100 % normalisiert |
 
+Für den individuellen Schlüssel hat jede Personenkarte einen Regler. Er startet
+beim derzeit wirksamen Anteil, zeigt beim Ziehen sofort die neuen Prozentsätze
+und Beträge aller Beteiligten und stellt den Schlüssel beim Loslassen auf
+„individuell“.
+
 Daraus ergibt sich für jede Person der Betrag, der nach eigenen Ausgaben und
 Haushaltsanteil übrig bleibt. Die Summe dieser Restbeträge entspricht exakt dem
 Monatssaldo des Haushalts.
@@ -65,6 +70,11 @@ Monatssaldo des Haushalts.
   eines Monats gegenüber.
 * **Kategorien** sind frei erweiterbar. Kategorien mit dem Merkmal *Sparen* zählen
   in der Sparquote als Vermögensaufbau und nicht als Konsum.
+
+In beiden Tabellen sortiert ein Klick auf die Spaltenüberschrift, ein zweiter
+dreht die Richtung. Auf der Übersicht führt ein Klick auf eine Kategoriezeile zu
+den Einzelposten dahinter — wiederkehrende Posten, Einzelbuchungen und
+Szenario-Effekte gemeinsam, absteigend nach Anteil.
 
 ### Investments
 

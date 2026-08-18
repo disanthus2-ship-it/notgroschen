@@ -12,7 +12,22 @@ HB.views = HB.views || {};
 
   var U = HB.util, C = HB.calc, S = HB.store, ui = HB.ui;
 
-  var view = { month: null, owner: '', kind: '', category: '', q: '' };
+  // sort.key === null heißt: Vorsortierung nach Datum, neueste zuerst.
+  var view = { month: null, owner: '', kind: '', category: '', q: '', sort: { key: null, dir: -1 } };
+
+  var SORT_KEYS = {
+    date:     function (t) { return t.date; },
+    label:    function (t) { return t.label; },
+    owner:    function (t) { return S.ownerName(t.owner); },
+    category: function (t) { return S.categoryName(t.categoryId); },
+    // Vorzeichenbehaftet, damit Einnahmen und Ausgaben auseinanderlaufen.
+    amount:   function (t) { return (t.kind === 'income' ? 1 : -1) * (Number(t.amount) || 0); }
+  };
+
+  function setSort(key, numeric) {
+    ui.toggleSort(view.sort, key, numeric);
+    HB.app.repaint();
+  }
 
   function render(root) {
     var state = S.state;
@@ -33,7 +48,7 @@ HB.views = HB.views || {};
 
     if (view.month) root.appendChild(planVsActual(state));
 
-    var rows = filtered(state);
+    var rows = ui.applySort(filtered(state), view.sort, SORT_KEYS);
 
     if (!state.transactions.length) {
       root.appendChild(ui.card({
@@ -83,7 +98,7 @@ HB.views = HB.views || {};
     bar.appendChild(U.el('button', {
       class: 'btn btn-sm', text: 'Filter zurücksetzen',
       onclick: function () {
-        view = { month: '', owner: '', kind: '', category: '', q: '' };
+        view = { month: '', owner: '', kind: '', category: '', q: '', sort: { key: null, dir: -1 } };
         HB.app.repaint();
       }
     }));
@@ -153,31 +168,37 @@ HB.views = HB.views || {};
     var inc = U.sum(rows.filter(function (r) { return r.kind === 'income'; }), function (r) { return r.amount; });
     var exp = U.sum(rows.filter(function (r) { return r.kind === 'expense'; }), function (r) { return r.amount; });
 
-    var byMonth = U.groupBy(rows, function (t) { return U.monthOfISO(t.date); });
-    var monthKeys = Object.keys(byMonth).sort().reverse();
-
     var tbody = U.el('tbody', {});
-    monthKeys.forEach(function (mk) {
-      if (monthKeys.length > 1) {
-        tbody.appendChild(U.el('tr', {}, U.el('td', {
-          colspan: 6,
-          class: 'small muted',
-          style: { background: 'var(--surface-2)', fontWeight: '600' },
-          text: U.monthLabel(mk, 'long')
-        })));
-      }
-      byMonth[mk].forEach(function (t) { tbody.appendChild(txRow(t)); });
-    });
+
+    if (view.sort.key) {
+      // Bei aktiver Spaltensortierung würden Monatstrenner die Ordnung
+      // zerschneiden — dann eine durchgehende Liste zeigen.
+      rows.forEach(function (t) { tbody.appendChild(txRow(t)); });
+    } else {
+      var byMonth = U.groupBy(rows, function (t) { return U.monthOfISO(t.date); });
+      var monthKeys = Object.keys(byMonth).sort().reverse();
+      monthKeys.forEach(function (mk) {
+        if (monthKeys.length > 1) {
+          tbody.appendChild(U.el('tr', {}, U.el('td', {
+            colspan: 6,
+            class: 'small muted',
+            style: { background: 'var(--surface-2)', fontWeight: '600' },
+            text: U.monthLabel(mk, 'long')
+          })));
+        }
+        byMonth[mk].forEach(function (t) { tbody.appendChild(txRow(t)); });
+      });
+    }
 
     return ui.card({
       raw: U.el('div', { class: 'table-wrap' }, [
         U.el('table', { class: 'tbl' }, [
           U.el('thead', {}, U.el('tr', {}, [
-            U.el('th', { text: 'Datum' }),
-            U.el('th', { text: 'Bezeichnung' }),
-            U.el('th', { text: 'Träger' }),
-            U.el('th', { text: 'Kategorie' }),
-            U.el('th', { class: 'num', text: 'Betrag' }),
+            th('Datum', 'date', true),
+            th('Bezeichnung', 'label'),
+            th('Träger', 'owner'),
+            th('Kategorie', 'category'),
+            th('Betrag', 'amount', true, true),
             U.el('th', { class: 'num', text: '' })
           ])),
           tbody,
@@ -189,6 +210,13 @@ HB.views = HB.views || {};
         ])
       ]),
       foot: 'Einnahmen ' + U.currency(inc, { digits: 0 }) + ' · Ausgaben ' + U.currency(exp, { digits: 0 })
+    });
+  }
+
+  function th(label, key, numeric, alignRight) {
+    return ui.thSort({
+      label: label, key: key, num: !!alignRight, sort: view.sort,
+      onSort: function (k) { setSort(k, !!numeric); }
     });
   }
 

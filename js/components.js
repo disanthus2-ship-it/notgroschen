@@ -275,6 +275,60 @@ window.HB = window.HB || {};
     ]);
   }
 
+  /* --- Sortierbare Tabellenköpfe ------------------------------------------ */
+
+  /**
+   * Kopfzelle, die beim Klick nach dieser Spalte sortiert. Ein erneuter Klick
+   * dreht die Richtung. `sort` ist ein Objekt { key, dir } aus dem
+   * Ansichtszustand; `dir` ist 1 für aufsteigend, -1 für absteigend.
+   */
+  function thSort(o) {
+    var active = o.sort && o.sort.key === o.key;
+    return U.el('th', {
+      class: 'sortable' + (o.num ? ' num' : '') + (active ? ' is-sorted' : ''),
+      tabindex: '0',
+      scope: 'col',
+      'aria-sort': active ? (o.sort.dir > 0 ? 'ascending' : 'descending') : 'none',
+      title: 'Nach „' + o.label + '“ sortieren',
+      onclick: function () { o.onSort(o.key); },
+      onkeydown: function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); o.onSort(o.key); }
+      }
+    }, [
+      U.el('span', { text: o.label }),
+      U.el('span', { class: 'sort-ind', text: active ? (o.sort.dir > 0 ? '▲' : '▼') : '' })
+    ]);
+  }
+
+  /**
+   * Sortierzustand umschalten. Zahlenspalten starten absteigend (das größte
+   * zuerst ist dort die erwartete Leserichtung), Textspalten aufsteigend.
+   */
+  function toggleSort(sort, key, numeric) {
+    if (sort.key === key) sort.dir = -sort.dir;
+    else { sort.key = key; sort.dir = numeric ? -1 : 1; }
+  }
+
+  /**
+   * Wendet den Sortierzustand an. `accessors` bildet Spaltenschlüssel auf eine
+   * Funktion ab, die den Vergleichswert liefert. Ohne gesetzten Schlüssel
+   * bleibt die Vorsortierung der Ansicht erhalten.
+   */
+  function applySort(rows, sort, accessors) {
+    if (!sort || !sort.key || !accessors[sort.key]) return rows;
+    var pick = accessors[sort.key];
+    var dir = sort.dir || 1;
+    return rows.slice().sort(function (a, b) {
+      var x = pick(a), y = pick(b);
+      if (typeof x === 'string' || typeof y === 'string') {
+        return String(x).localeCompare(String(y), 'de') * dir;
+      }
+      if (x == null) x = -Infinity;
+      if (y == null) y = -Infinity;
+      return (x < y ? -1 : x > y ? 1 : 0) * dir;
+    });
+  }
+
   /* --- Auswahllisten ------------------------------------------------------ */
 
   function ownerOptions(state, opts) {
@@ -312,6 +366,7 @@ window.HB = window.HB || {};
     card: card, stat: stat, meter: meter, chartCard: chartCard,
     openModal: openModal, closeModal: closeModal, confirm: confirm, toast: toast,
     field: field, select: select, textInput: textInput, numInput: numInput,
+    thSort: thSort, toggleSort: toggleSort, applySort: applySort,
     monthInput: monthInput, dateInput: dateInput, iconBtn: iconBtn,
     emptyState: emptyState, toneClass: toneClass,
     ownerOptions: ownerOptions, categoryOptions: categoryOptions,

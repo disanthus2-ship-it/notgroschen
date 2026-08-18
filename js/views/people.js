@@ -11,9 +11,16 @@ HB.views = HB.views || {};
 
   var U = HB.util, C = HB.calc, S = HB.store, ui = HB.ui;
 
+  // Register der Anteilsregler des aktuellen Aufbaus. Sie hängen voneinander ab
+  // — wird einer bewegt, ändern sich die Prozentsätze aller anderen mit.
+  var sliders = [];
+  var netCost = 0;
+
   function render(root) {
     var state = S.state;
     var sum = C.monthSummary(state, U.monthKey(), { plans: S.activePlans() });
+    sliders = [];
+    netCost = sum.householdNetCost;
 
     root.appendChild(U.el('div', { class: 'view-head' }, [
       U.el('div', {}, [
@@ -50,6 +57,7 @@ HB.views = HB.views || {};
     root.appendChild(U.el('div', { class: 'grid grid-auto' }, state.people.map(function (p) {
       return personCard(state, p, sum);
     })));
+    refreshShares();
 
     root.appendChild(U.el('div', { class: 'section-title', text: 'Aufteilung im laufenden Monat' }));
     root.appendChild(shareTable(state, sum));
@@ -147,9 +155,80 @@ HB.views = HB.views || {};
         rows,
         p.budget
           ? ui.meter({ used: b.expense, budget: p.budget, label: 'Persönliches Budget' })
-          : U.el('p', { class: 'small muted', style: { marginTop: '10px' }, text: 'Kein persönliches Budget hinterlegt.' })
+          : U.el('p', { class: 'small muted', style: { marginTop: '10px' }, text: 'Kein persönliches Budget hinterlegt.' }),
+        shareSlider(state, p, b)
       ])
     });
+  }
+
+  /* --- Anteilsregler ------------------------------------------------------ */
+
+  /**
+   * Regler für den Anteil dieser Person an den gemeinsamen Kosten.
+   *
+   * Startwert ist der derzeit tatsächlich wirksame Anteil, egal welcher
+   * Schlüssel gerade gilt — dadurch springt beim ersten Anfassen nichts.
+   * Die Rohwerte aller Personen werden auf 100 % normalisiert; angezeigt wird
+   * deshalb immer der normalisierte Anteil, nicht die Reglerstellung.
+   */
+  function shareSlider(state, p, b) {
+    var raw = p.sharePct != null ? p.sharePct : Math.round((b.share || 0) * 100);
+
+    var input = U.el('input', {
+      type: 'range', min: '0', max: '100', step: '1', value: String(U.clamp(raw, 0, 100)),
+      'aria-label': 'Anteil von ' + p.name + ' an den Haushaltskosten',
+      oninput: refreshShares,
+      onchange: commitShares
+    });
+
+    var valEl = U.el('span', { class: 'val' });
+    var costEl = U.el('span', {});
+
+    sliders.push({ id: p.id, input: input, valEl: valEl, costEl: costEl });
+
+    return U.el('div', { class: 'share-slider' }, [
+      U.el('div', { class: 'share-slider-head' }, [
+        U.el('span', { class: 'lbl', text: 'Anteil an den Haushaltskosten' }),
+        valEl
+      ]),
+      input,
+      U.el('div', { class: 'foot' }, [
+        costEl,
+        U.el('span', {
+          text: state.settings.splitMode === 'custom'
+            ? 'individueller Schlüssel'
+            : 'aktiviert „individuell“'
+        })
+      ])
+    ]);
+  }
+
+  /** Live beim Ziehen: normalisierte Anteile aller Regler neu beschriften. */
+  function refreshShares() {
+    if (!sliders.length) return;
+    var total = sliders.reduce(function (a, s) { return a + Number(s.input.value); }, 0);
+    sliders.forEach(function (s) {
+      var share = total > 0 ? Number(s.input.value) / total : 1 / sliders.length;
+      s.valEl.textContent = U.pct(share, 1);
+      s.costEl.textContent = U.currency(netCost * share, { digits: 0 }) +
+        ' von ' + U.currency(netCost, { digits: 0 });
+    });
+  }
+
+  /** Beim Loslassen speichern — und den Schlüssel auf „individuell“ setzen. */
+  function commitShares() {
+    var values = sliders.map(function (s) { return { id: s.id, value: Number(s.input.value) }; });
+    var wasCustom = S.state.settings.splitMode === 'custom';
+
+    S.update(function (st) {
+      values.forEach(function (v) {
+        var person = U.byId(st.people, v.id);
+        if (person) person.sharePct = v.value;
+      });
+      st.settings.splitMode = 'custom';
+    }, 'people');
+
+    if (!wasCustom) ui.toast('Verteilungsschlüssel auf „individuell“ umgestellt.');
   }
 
   function row(label, value, cls) {

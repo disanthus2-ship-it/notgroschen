@@ -564,3 +564,59 @@ table.tbl tfoot td {
 .alloc-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .alloc-row .val { font-variant-numeric: tabular-nums; font-weight: 600; }
 .alloc-row .share { font-variant-numeric: tabular-nums; color: var(--text-muted); font-size: 12px; min-width: 44px; text-align: right; }
+
+/* --- Sortierbare Tabellenköpfe --------------------------------------------- */
+
+table.tbl th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+table.tbl th.sortable:hover { color: var(--text-primary); background: var(--surface-3); }
+table.tbl th.sortable.is-sorted { color: var(--accent-ink); background: var(--accent-soft); }
+table.tbl th.sortable .sort-ind {
+  display: inline-block;
+  width: 10px;
+  margin-left: 5px;
+  font-size: 9px;
+  opacity: 0.55;
+}
+table.tbl th.sortable.is-sorted .sort-ind { opacity: 1; }
+/* Der Indikator bleibt bei nicht sortierten Spalten als Platzhalter stehen,
+   damit die Spaltenbreite beim Umsortieren nicht springt. */
+table.tbl th.sortable:not(.is-sorted):not(:hover) .sort-ind { visibility: hidden; }
+table.tbl th.sortable:not(.is-sorted):hover .sort-ind::after { content: "▼"; }
+
+/* Anklickbare Zeilen (Kategorie-Aufschlüsselung auf der Übersicht) */
+table.tbl tbody tr.is-clickable { cursor: pointer; }
+table.tbl tbody tr.is-clickable:hover { background: var(--accent-soft); }
+table.tbl tbody tr.is-clickable:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.row-chevron { color: var(--text-muted); font-size: 11px; }
+table.tbl tbody tr.is-clickable:hover .row-chevron { color: var(--accent-ink); }
+
+/* --- Anteilsregler (Verteilungsschlüssel) ---------------------------------- */
+
+.share-slider { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
+.share-slider-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.share-slider-head .lbl { font-size: 12px; font-weight: 500; color: var(--text-secondary); }
+.share-slider-head .val { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.share-slider input[type="range"] { width: 100%; display: block; }
+.share-slider .foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 10px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.share-slider .foot > span { white-space: nowrap; }

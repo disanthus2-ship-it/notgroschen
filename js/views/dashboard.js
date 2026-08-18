@@ -293,12 +293,24 @@ HB.views = HB.views || {};
               U.el('th', { class: 'num', text: 'Anteil' })
             ])),
             U.el('tbody', {}, rows.map(function (r) {
-              return U.el('tr', {}, [
+              return U.el('tr', {
+                class: 'is-clickable',
+                tabindex: '0',
+                title: 'Einzelposten von „' + r.name + '“ anzeigen',
+                onclick: function () { categoryDetail(state, s, r.id); },
+                onkeydown: function (e) {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    categoryDetail(state, s, r.id);
+                  }
+                }
+              }, [
                 U.el('td', {}, [
                   C.isSavingCategory(state, r.id)
                     ? U.el('span', { class: 'badge pos', text: 'Sparen' })
                     : null,
-                  U.el('span', { text: (C.isSavingCategory(state, r.id) ? ' ' : '') + r.name })
+                  U.el('span', { text: (C.isSavingCategory(state, r.id) ? ' ' : '') + r.name }),
+                  U.el('span', { class: 'row-chevron', text: ' ›' })
                 ]),
                 U.el('td', { class: 'num', text: U.currency(r.value, { digits: 0 }) }),
                 U.el('td', { class: 'num', text: U.currency(r.value * 12, { digits: 0 }) }),
@@ -318,7 +330,94 @@ HB.views = HB.views || {};
     return ui.card({
       title: 'Ausgaben nach Kategorie',
       sub: 'inkl. anteiliger Jahres- und Quartalsposten',
-      raw: body
+      raw: body,
+      foot: rows.length ? 'Eine Zeile anklicken zeigt die Einzelposten dahinter.' : null
+    });
+  }
+
+  /* --- Aufschlüsselung einer Kategorie ------------------------------------- */
+
+  /**
+   * Zeigt alle Einzelposten hinter einem Kategoriebetrag der Übersicht —
+   * wiederkehrende Posten, Einzelbuchungen und Szenario-Effekte gemeinsam,
+   * absteigend nach Anteil. Nur so entspricht die Summe exakt der angeklickten
+   * Zahl; eine reine Postenliste würde Buchungen unterschlagen.
+   */
+  function categoryDetail(state, sum, catId) {
+    var flows = sum.flows
+      .filter(function (f) { return f.kind === 'expense' && f.categoryId === catId; })
+      .slice()
+      .sort(function (a, b) { return b.amount - a.amount; });
+
+    var catTotal = U.sum(flows, function (f) { return f.amount; });
+    var isSaving = C.isSavingCategory(state, catId);
+
+    var SOURCE = {
+      recurring: { label: 'Posten', cls: '' },
+      transaction: { label: 'Buchung', cls: 'info' },
+      plan: { label: 'Szenario', cls: 'warn' }
+    };
+
+    var body = U.el('div', {}, [
+      U.el('div', { class: 'grid grid-3', style: { marginBottom: '14px' } }, [
+        ui.stat({
+          label: 'Pro Monat', value: U.currency(catTotal, { digits: 0 }),
+          sub: U.currency(catTotal * 12, { digits: 0 }) + ' pro Jahr'
+        }),
+        ui.stat({
+          label: 'Anteil an allen Ausgaben',
+          value: sum.expense ? U.pct(catTotal / sum.expense, 1) : '—',
+          sub: 'von ' + U.currency(sum.expense, { digits: 0 })
+        }),
+        ui.stat({
+          label: 'Einzelposten', value: String(flows.length),
+          sub: isSaving ? 'zählt als Vermögensaufbau' : U.monthLabel(view.month, 'long')
+        })
+      ]),
+      U.el('div', { class: 'table-wrap' }, [
+        U.el('table', { class: 'tbl' }, [
+          U.el('thead', {}, U.el('tr', {}, [
+            U.el('th', { text: 'Bezeichnung' }),
+            U.el('th', { text: 'Träger' }),
+            U.el('th', { text: 'Herkunft' }),
+            U.el('th', { class: 'num', text: 'pro Monat' }),
+            U.el('th', { class: 'num', text: 'Anteil' })
+          ])),
+          U.el('tbody', {}, flows.map(function (f) {
+            var src = SOURCE[f.source] || SOURCE.recurring;
+            return U.el('tr', {}, [
+              U.el('td', { text: f.label }),
+              U.el('td', {}, ui.personSwatch(f.owner)),
+              U.el('td', {}, U.el('span', {
+                class: 'badge' + (src.cls ? ' ' + src.cls : ''), text: src.label
+              })),
+              U.el('td', { class: 'num', text: U.currency(f.amount, { digits: 2 }) }),
+              U.el('td', { class: 'num', text: catTotal ? U.pct(f.amount / catTotal, 1) : '—' })
+            ]);
+          })),
+          U.el('tfoot', {}, U.el('tr', {}, [
+            U.el('td', { colspan: 3, text: 'Summe' }),
+            U.el('td', { class: 'num', text: U.currency(catTotal, { digits: 2 }) }),
+            U.el('td', { class: 'num', text: '100 %' })
+          ]))
+        ])
+      ])
+    ]);
+
+    ui.openModal({
+      title: S.categoryName(catId),
+      wide: true,
+      body: body,
+      actions: [
+        {
+          label: 'Wiederkehrende Posten öffnen', variant: 'btn-ghost',
+          onClick: function (close) {
+            close();
+            HB.app.go('items', { category: catId, kind: 'expense' });
+          }
+        },
+        { label: 'Schließen', variant: 'btn-primary' }
+      ]
     });
   }
 

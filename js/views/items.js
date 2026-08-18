@@ -12,10 +12,29 @@ HB.views = HB.views || {};
 
   var U = HB.util, C = HB.calc, S = HB.store, ui = HB.ui;
 
-  var view = { owner: '', kind: '', category: '', q: '', showInactive: false };
+  // sort.key === null heißt: Vorsortierung der Ansicht (Einnahmen zuerst,
+  // dann nach Monatsbetrag absteigend).
+  var view = {
+    owner: '', kind: '', category: '', q: '', showInactive: false,
+    sort: { key: null, dir: -1 }
+  };
+
+  function setSort(key, numeric) {
+    ui.toggleSort(view.sort, key, numeric);
+    HB.app.repaint();
+  }
 
   function render(root, params) {
     var state = S.state;
+
+    // Aufruf aus der Übersicht: Kategorie vorfiltern und nach Größe sortieren.
+    if (params && params.category) {
+      view.category = params.category;
+      view.owner = '';
+      view.q = '';
+      view.kind = params.kind || '';
+      view.sort = { key: 'perMonth', dir: -1 };
+    }
 
     root.appendChild(U.el('div', { class: 'view-head' }, [
       U.el('div', {}, [
@@ -33,7 +52,7 @@ HB.views = HB.views || {};
 
     root.appendChild(filterbar(state));
 
-    var rows = filtered(state);
+    var rows = ui.applySort(filtered(state), view.sort, SORT_KEYS);
 
     if (!state.items.length) {
       root.appendChild(ui.card({
@@ -85,6 +104,20 @@ HB.views = HB.views || {};
       U.el('span', { text: 'Pausierte anzeigen' })
     ])));
 
+    var active = view.owner || view.kind || view.category || view.q || view.sort.key;
+    if (active) {
+      bar.appendChild(U.el('div', { class: 'spacer' }));
+      bar.appendChild(U.el('button', {
+        class: 'btn btn-sm', text: 'Filter & Sortierung zurücksetzen',
+        onclick: function () {
+          view.owner = ''; view.kind = ''; view.category = ''; view.q = '';
+          view.showInactive = false;
+          view.sort = { key: null, dir: -1 };
+          HB.app.repaint();
+        }
+      }));
+    }
+
     return bar;
   }
 
@@ -102,6 +135,19 @@ HB.views = HB.views || {};
       return C.perMonth(b) - C.perMonth(a);
     });
   }
+
+  /* --- Sortierung --------------------------------------------------------- */
+
+  var SORT_KEYS = {
+    label:    function (it) { return it.label; },
+    owner:    function (it) { return S.ownerName(it.owner); },
+    category: function (it) { return S.categoryName(it.categoryId); },
+    interval: function (it) { return C.INTERVALS[it.interval].perMonth; },
+    amount:   function (it) { return Number(it.amount) || 0; },
+    perMonth: function (it) { return C.perMonth(it); },
+    perYear:  function (it) { return C.perMonth(it) * 12; },
+    range:    function (it) { return it.start ? U.monthIndex(it.start) : -Infinity; }
+  };
 
   /* --- Kopfzahlen --------------------------------------------------------- */
 
@@ -134,14 +180,14 @@ HB.views = HB.views || {};
       raw: U.el('div', { class: 'table-wrap' }, [
         U.el('table', { class: 'tbl' }, [
           U.el('thead', {}, U.el('tr', {}, [
-            U.el('th', { text: 'Bezeichnung' }),
-            U.el('th', { text: 'Träger' }),
-            U.el('th', { text: 'Kategorie' }),
-            U.el('th', { text: 'Intervall' }),
-            U.el('th', { class: 'num', text: 'Betrag' }),
-            U.el('th', { class: 'num', text: 'pro Monat' }),
-            U.el('th', { class: 'num', text: 'pro Jahr' }),
-            U.el('th', { text: 'Zeitraum' }),
+            th('Bezeichnung', 'label'),
+            th('Träger', 'owner'),
+            th('Kategorie', 'category'),
+            th('Intervall', 'interval', true),
+            th('Betrag', 'amount', true),
+            th('pro Monat', 'perMonth', true),
+            th('pro Jahr', 'perYear', true),
+            th('Zeitraum', 'range', true),
             U.el('th', { class: 'num', text: '' })
           ])),
           U.el('tbody', {}, rows.map(function (it) { return itemRow(state, it); })),
@@ -153,6 +199,14 @@ HB.views = HB.views || {};
           ]))
         ])
       ])
+    });
+  }
+
+  function th(label, key, numeric) {
+    return ui.thSort({
+      label: label, key: key, num: numeric && key !== 'interval' && key !== 'range',
+      sort: view.sort,
+      onSort: function (k) { setSort(k, !!numeric); }
     });
   }
 
