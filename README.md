@@ -68,8 +68,11 @@ Monatssaldo des Haushalts.
 * **Einzelbuchungen** mit konkretem Datum für alles Einmalige. Die Ansicht
   „Buchungen“ stellt Plan (nur Wiederkehrendes) und Ist (inklusive Buchungen)
   eines Monats gegenüber.
-* **Kategorien** sind frei erweiterbar. Kategorien mit dem Merkmal *Sparen* zählen
-  in der Sparquote als Vermögensaufbau und nicht als Konsum.
+* **Kategorien** sind vollständig verwaltbar — auch die mitgelieferten lassen
+  sich umbenennen, umwidmen und löschen. Beim Löschen werden alle Einträge auf
+  eine andere Kategorie umgebucht, es geht nichts verloren; die letzte Kategorie
+  einer Art bleibt erhalten. Kategorien mit dem Merkmal *Sparen* zählen in der
+  Sparquote als Vermögensaufbau und nicht als Konsum.
 * **Progression** je Posten — jährlich, alle zwei Jahre oder in einem frei
   gewählten Abstand, ab einem bestimmten Monat und optional befristet. Bei
   Einnahmen ist das die Gehaltsprogression (etwa aus dem Kollektivvertrag), bei
@@ -101,6 +104,45 @@ Läuft zu einem Investment ein Sparplan, wird er mit dem passenden Posten
 Investment ist die Vermögensseite. Im Formular lässt sich der Posten in einem
 Zug miterzeugen. So kann eine Sparrate nicht zugleich als Ausgabe und als
 Vermögenszuwachs gezählt werden.
+
+### Kredite und Nettovermögen
+
+Die Gegenseite der Investments: Restschuld, Zinssatz und Tilgungsverlauf je
+Kredit. Daraus ergibt sich das **Nettovermögen** — Vermögen minus Schulden, die
+einzige Vermögenszahl, die tatsächlich jemandem gehört. Sie steht auf der
+Übersicht, in beiden Vermögensansichten und am Ende der Projektion.
+
+Wie bei den Investments erzeugt ein Kredit keinen Geldfluss: Die Rate ist ein
+gewöhnlicher Posten, der Kredit verweist nur darauf. Ist er getilgt, **lässt die
+Projektion die Rate automatisch auslaufen** — man muss kein Enddatum pflegen.
+Deckt eine Rate die Zinsen nicht, sagt die App das, statt eine Laufzeit zu
+erfinden.
+
+### Notgroschen
+
+Die Kennzahl, nach der die App benannt ist: Wie viele Monate tragen die sofort
+verfügbaren Mittel die Ausgaben, wenn das Einkommen ausbleibt?
+
+```
+Liquide Mittel = Girokonto und Bargeld + als Reserve markierte Anlagen
+Reichweite     = Liquide Mittel ÷ (Monatsausgaben − Sparbeiträge)
+```
+
+Sparbeiträge zählen nicht mit — die würde man in einer solchen Lage aussetzen.
+Kreditraten dagegen laufen weiter und bleiben drin. Als Reserve gilt
+standardmäßig nur Tages- und Festgeld; wer seinen ETF dazuzählen will, stellt
+das je Position um. Das Ziel (Vorgabe vier Monate) ist unter „Daten" einstellbar.
+
+### Liquiditätsvorschau
+
+Die Monatsrechnung glättet: Ein Jahresposten über 3.000 € zählt mit 250 € in
+jedem Monat. Das beantwortet nicht, ob das Konto den Juli übersteht, wenn
+Urlaub, Versicherung und Jahreskarte zusammenfallen.
+
+Trägt man am Posten einen **Fälligkeitsmonat** ein, zeigt die Planung zusätzlich
+den ungeglätteten Kontoverlauf: Der volle Betrag trifft in seinem Monat ein,
+darunter eine Liste der Monate mit größeren Einzelzahlungen. Ohne Angabe bleibt
+alles wie bisher gleichmäßig verteilt.
 
 ### Sankey-Diagramm
 
@@ -228,7 +270,7 @@ js/
   sankey.js           Layout-Algorithmus und SVG-Rendering
   charts.js           Linien- und Säulendiagramme
   components.js       Karten, Kennzahlen, Meter, Modal, Formularfelder
-  views/              Die acht Ansichten
+  views/              Die neun Ansichten
   app.js              Router, Theme, Datei-Ein-/Ausgabe
 ```
 

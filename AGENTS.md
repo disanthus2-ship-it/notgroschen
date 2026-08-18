@@ -66,6 +66,7 @@ Arbeitsspeicher. Der Weg über die Datei ist der einzige verlässliche.
   "items":       [ … ],           // wiederkehrende Posten
   "transactions":[ … ],           // Einzelbuchungen mit Datum
   "investments": [ … ],           // Geldanlagen (Vermögensseite)
+  "debts":       [ … ],           // Kredite (Schuldenseite)
   "plans":       [ … ],           // Szenarien
   "fire":        { … }
 }
@@ -94,6 +95,7 @@ andere wird beim Import mit Vorgaben aufgefüllt.
 | `projectionMonths` | Zahl | `60` |
 | `sankeyMode` | `"budget"` · `"direct"` | `"budget"` |
 | `sankeyMinShare` | Zahl in Prozent | `1.5` |
+| `emergencyMonths` | Zahl | `4` — Zielreichweite des Notgroschens |
 
 Fasse `settings` bei einem Datenimport nicht an — das sind Anzeigevorlieben.
 
@@ -106,7 +108,8 @@ Fasse `settings` bei einem Datenimport nicht an — das sind Anzeigevorlieben.
 
 > `assets` ist nicht das Gesamtvermögen. Die App rechnet
 > **Gesamtvermögen = `household.assets` + Summe aller `investments[].currentValue`**
-> und verwendet diese Summe als Startwert für Projektion und FIRE-Rechnung.
+> und davon abgeleitet
+> **Nettovermögen = Gesamtvermögen − Summe aller `debts[].balance`**.
 > Ein Bestand, der hier steht und zugleich als Investment erfasst ist, zählt doppelt.
 
 ### `people[]`
@@ -165,6 +168,7 @@ Eine eigene Kategorie bekommt eine neue `id` (Konvention: `cat_<begriff>`) und
   "categoryId": "cat_housing",
   "start": null,           // "JJJJ-MM" oder null (= seit jeher)
   "end": null,             // "JJJJ-MM" oder null (= unbefristet)
+  "dueMonth": null,        // 1–12: Fälligkeitsmonat, oder null
   "growth": null,          // Progression, siehe unten — oder null
   "active": true,
   "note": ""
@@ -184,6 +188,20 @@ Umrechnung macht die App:
 | `quarterly` | × 1 ⁄ 3 | 300 € im Quartal → 100 €/Monat |
 | `semiannual` | × 1 ⁄ 6 | 600 € halbjährlich → 100 €/Monat |
 | `yearly` | × 1 ⁄ 12 | 1.200 € jährlich → 100 €/Monat |
+
+#### Fälligkeit (`dueMonth`)
+
+Für Intervalle gröber als monatlich: In welchem Kalendermonat der Betrag
+tatsächlich abgeht. Ein Jahresposten mit `"dueMonth": 7` trifft im Juli mit dem
+vollen Betrag ein, ein Quartalsposten mit `"dueMonth": 3` in März, Juni,
+September und Dezember.
+
+Das ändert **nichts** an der Monatsrechnung — dort bleibt der Betrag über das
+Intervall verteilt. Es wirkt allein auf die Liquiditätsvorschau, die den echten
+Kontoverlauf zeigt. Ohne Angabe (`null`) wird auch dort gleichmäßig verteilt.
+
+Bei `monthly`, `biweekly` und `weekly` ist das Feld wirkungslos und gehört
+auf `null`.
 
 #### Progression (`growth`)
 
@@ -249,6 +267,7 @@ also nur dann eine Buchung, wenn es daneben keinen laufenden Posten
   "currentValue": 21400,       // aktueller Wert, zählt zum Gesamtvermögen
   "costBasis": 18200,          // Einstandswert (Summe der Einzahlungen) oder null
   "expectedReturnPct": 6.5,    // Renditeerwartung p. a. nominal, oder null
+  "liquid": null,              // null = Vorgabe der Anlageart, sonst true/false
   "linkedItemId": "itm_…",     // Verweis auf den Sparplan-Posten, oder null
   "provider": "Depotbank",
   "note": ""
@@ -281,6 +300,47 @@ schon, nur verknüpfen — keinen zweiten anlegen.
 Projektion und FIRE-Rechnung als Vorgabe verwenden. Positionen ohne
 Renditeerwartung (`null`) bleiben aus diesem Durchschnitt heraus, ziehen ihn
 also nicht künstlich nach unten.
+
+### `debts[]` — Kredite
+
+```jsonc
+{
+  "id": "dbt_…",
+  "label": "Wohnkredit",
+  "type": "mortgage",          // siehe Tabelle unten
+  "owner": "household",        // "household" oder eine people[].id
+  "balance": 198500,           // aktuelle Restschuld, ≥ 0
+  "principal": 240000,         // ursprüngliche Summe, oder null
+  "interestPct": 3.4,          // Sollzins p. a.
+  "paymentMonthly": null,      // nur ohne verknüpften Posten
+  "linkedItemId": "itm_…",     // Verweis auf den Ratenposten, oder null
+  "provider": "Hausbank",
+  "note": ""
+}
+```
+
+Erlaubte `type`-Werte — alles andere wird beim Import zu `other`:
+`mortgage` (Wohnkredit) · `consumer` (Konsumkredit) · `car` (Auto-/Leasing) ·
+`education` (Bildungskredit) · `creditcard` (Kreditkarte/Überziehung) ·
+`privateloan` (Privatdarlehen) · `other`.
+
+**Ein Kredit erzeugt keinen Geldfluss** — dasselbe Prinzip wie bei den
+Investments. Die Rate ist ein gewöhnlicher Posten in `items` (Kategorie
+`cat_debt`), `linkedItemId` verweist darauf. Nur wenn kein Posten verknüpft ist,
+zieht die App `paymentMonthly` heran; dieser Betrag wirkt dann allein auf die
+Tilgungsrechnung und **nicht** auf Budget und Saldo.
+
+Der Tilgungsplan rechnet Monat für Monat:
+
+```
+Zins(Monat)    = Restschuld × interestPct / 100 / 12
+Tilgung(Monat) = Rate − Zins
+Restschuld     = Restschuld − Tilgung
+```
+
+Ist ein Kredit getilgt, lässt die App den verknüpften Posten in der Projektion
+automatisch auslaufen — ein Enddatum am Posten ist dafür nicht nötig. Deckt die
+Rate die Zinsen nicht, meldet die App das, statt endlos zu rechnen.
 
 ### `plans[]` — Szenarien
 
@@ -358,6 +418,8 @@ nicht darauf.
 | `interval` unbekannt | wird zu `"monthly"` — ein Jahresbetrag zählt dann zwölffach |
 | `growth` unvollständig oder ohne gültiges `from` | wird zu `null`, die Progression ist weg |
 | `investments[].type` unbekannt | wird zu `"sonstiges"` |
+| `debts[].type` unbekannt | wird zu `"other"` |
+| `dueMonth` außerhalb 1–12 | wird zu `null`, die Fälligkeit ist weg |
 | `linkedItemId` zeigt auf einen gelöschten Posten | wird auf `null` gesetzt |
 | `kind` ist etwas anderes als `"income"` | wird zu `"expense"` |
 | `amount` nicht als Zahl lesbar | wird zu `0` |
@@ -374,6 +436,11 @@ nicht darauf.
   Dasselbe gilt für `currentValue` eines Investments.
 - **Doppelt erfasstes Vermögen.** Ein Bestand gehört entweder in
   `household.assets` oder in `investments` — nie in beides.
+- **Kreditraten doppelt.** Ist ein Posten als `linkedItemId` verknüpft, darf
+  `paymentMonthly` nicht zusätzlich gesetzt sein — die App nimmt dann den Posten,
+  der andere Wert ist nur verwirrend.
+- **Rate unter dem Zins.** Ein Kredit, dessen Rate die Monatszinsen nicht deckt,
+  tilgt sich nie. Die App meldet das, rechnet aber nicht dagegen an.
 - **Doppelt belegte Sparpläne.** Hängt derselbe Posten an mehreren Investments,
   erscheint seine Rate bei jedem davon.
 - **Szenario-Ziele.** Ein `targetId`, das ins Leere zeigt, wirkt einfach nicht.
@@ -581,6 +648,9 @@ Für die Vermögensseite:
 
 ```
 Gesamtvermögen    = household.assets + Σ investments[].currentValue
+Nettovermögen     = Gesamtvermögen − Σ debts[].balance
+Liquide Mittel    = household.assets + Σ investments mit liquid = true
+Notgroschen       = Liquide Mittel ÷ (Monatsausgaben − Sparbeiträge)
 Gewinn            = Σ currentValue − Σ costBasis   (nur Positionen mit costBasis)
 Portfoliorendite  = Σ (currentValue × expectedReturnPct) ÷ Σ currentValue
                     (nur Positionen mit gesetzter Renditeerwartung)

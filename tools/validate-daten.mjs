@@ -42,6 +42,10 @@ const INVESTMENT_TYPES = [
   'versicherung', 'vorsorge', 'immobilie', 'edelmetall', 'krypto', 'sonstiges'
 ];
 
+const DEBT_TYPES = [
+  'mortgage', 'consumer', 'car', 'education', 'creditcard', 'privateloan', 'other'
+];
+
 const KINDS = ['income', 'expense'];
 const SCOPES = ['person', 'item', 'category', 'household', 'all', 'oneoff'];
 const MODES = ['percent', 'delta', 'set'];
@@ -91,7 +95,7 @@ function checkTop(data) {
   if (data.app != null && data.app !== 'notgroschen') {
     warn('app', `Feld "app" ist ${JSON.stringify(data.app)}, erwartet wird "notgroschen".`);
   }
-  for (const key of ['people', 'categories', 'items', 'transactions', 'investments', 'plans']) {
+  for (const key of ['people', 'categories', 'items', 'transactions', 'investments', 'debts', 'plans']) {
     if (data[key] != null && !Array.isArray(data[key])) {
       err(key, 'Muss ein Array sein.');
     }
@@ -254,6 +258,14 @@ function checkItems(data, personIds, cats) {
       warn(at, '"active" sollte true oder false sein; alles außer false gilt der App als aktiv.');
     }
     checkGrowth(at, it.growth);
+
+    if (it.dueMonth != null) {
+      if (!Number.isInteger(it.dueMonth) || it.dueMonth < 1 || it.dueMonth > 12) {
+        err(at, `"dueMonth" muss eine ganze Zahl von 1 bis 12 sein, ist ${JSON.stringify(it.dueMonth)}.`);
+      } else if (INTERVALS[it.interval] != null && Math.round(1 / INTERVALS[it.interval]) <= 1) {
+        warn(at, '"dueMonth" ist gesetzt, aber das Intervall fällt ohnehin jeden Monat an — die Angabe bleibt wirkungslos.');
+      }
+    }
   });
   return ids;
 }
@@ -344,6 +356,9 @@ function checkInvestments(data, personIds, itemIds) {
     if (inv.expectedReturnPct != null && !isNum(inv.expectedReturnPct)) {
       err(at, '"expectedReturnPct" muss null oder eine Zahl sein.');
     }
+    if (inv.liquid != null && typeof inv.liquid !== 'boolean') {
+      err(at, '"liquid" muss null, true oder false sein.');
+    }
     checkRef(at, inv.owner, personIds);
 
     if (inv.linkedItemId != null) {
@@ -358,6 +373,76 @@ function checkInvestments(data, personIds, itemIds) {
           warn(at, `Der Posten ist bereits bei investments[${linkUse.get(inv.linkedItemId)}] als Sparplan hinterlegt; die Rate erscheint dann bei beiden.`);
         } else {
           linkUse.set(inv.linkedItemId, i);
+        }
+      }
+    }
+  });
+}
+
+/** Monatsbetrag des verknüpften Ratenpostens, oder null. */
+function linkedPayment(data, itemId) {
+  if (!itemId) return null;
+  const it = (data.items || []).find((x) => isObj(x) && x.id === itemId);
+  if (!it || it.active === false) return null;
+  const factor = INTERVALS[it.interval];
+  return factor == null ? null : (Number(it.amount) || 0) * factor;
+}
+
+function checkDebts(data, personIds, itemIds) {
+  const list = data.debts || [];
+  uniqueIds(list, 'debts');
+  const linkUse = new Map();
+
+  list.forEach((d, i) => {
+    const at = `debts[${i}]${d?.label ? ` („${d.label}")` : ''}`;
+    if (!isObj(d)) { err(`debts[${i}]`, 'Muss ein Objekt sein.'); return; }
+    if (typeof d.label !== 'string' || !d.label.trim()) err(at, 'Feld "label" fehlt oder ist leer.');
+
+    if (!DEBT_TYPES.includes(d.type)) {
+      err(at, `"type" ${JSON.stringify(d.type)} ist unbekannt. Die App würde daraus "other" machen. Erlaubt: ${DEBT_TYPES.join(', ')}.`);
+    }
+    if (!isNum(d.balance)) {
+      err(at, `"balance" muss eine Zahl sein, ist ${JSON.stringify(d.balance)}.`);
+    } else if (d.balance < 0) {
+      err(at, '"balance" ist negativ. Eine Restschuld ist immer positiv.');
+    }
+    if (d.principal != null && (!isNum(d.principal) || d.principal < 0)) {
+      err(at, '"principal" muss null oder eine Zahl ≥ 0 sein.');
+    } else if (isNum(d.principal) && isNum(d.balance) && d.principal < d.balance) {
+      warn(at, `"principal" (${d.principal}) ist kleiner als die Restschuld (${d.balance}) — der Tilgungsfortschritt wäre negativ.`);
+    }
+    if (!isNum(d.interestPct) || d.interestPct < 0) {
+      err(at, `"interestPct" muss eine Zahl ≥ 0 sein, ist ${JSON.stringify(d.interestPct)}.`);
+    }
+    if (d.paymentMonthly != null && (!isNum(d.paymentMonthly) || d.paymentMonthly < 0)) {
+      err(at, '"paymentMonthly" muss null oder eine Zahl ≥ 0 sein.');
+    }
+    checkRef(at, d.owner, personIds);
+
+    // Die zentrale Plausibilität: Deckt die Rate wenigstens die Zinsen?
+    const payment = isNum(d.paymentMonthly) ? d.paymentMonthly : linkedPayment(data, d.linkedItemId);
+    if (isNum(d.balance) && isNum(d.interestPct) && payment != null) {
+      const monthlyInterest = d.balance * d.interestPct / 100 / 12;
+      if (payment > 0 && payment <= monthlyInterest) {
+        warn(at, `Die Rate (${payment}) liegt nicht über den monatlichen Zinsen (${monthlyInterest.toFixed(2)}) — die Schuld würde wachsen statt sinken.`);
+      }
+    }
+    if (payment == null && isNum(d.balance) && d.balance > 0) {
+      warn(at, 'Weder eine Rate hinterlegt noch ein Posten verknüpft — dieser Kredit tilgt sich nie.');
+    }
+
+    if (d.linkedItemId != null) {
+      if (!itemIds.has(d.linkedItemId)) {
+        err(at, `"linkedItemId" ${JSON.stringify(d.linkedItemId)} ist kein bekannter Posten. Die App würde die Verknüpfung beim Import kappen.`);
+      } else {
+        const it = (data.items || []).find((x) => x.id === d.linkedItemId);
+        if (it && it.kind !== 'expense') {
+          warn(at, 'Der verknüpfte Ratenposten ist als Einnahme angelegt — eine Kreditrate ist eine Ausgabe.');
+        }
+        if (linkUse.has(d.linkedItemId)) {
+          warn(at, `Der Posten ist bereits bei debts[${linkUse.get(d.linkedItemId)}] als Rate hinterlegt.`);
+        } else {
+          linkUse.set(d.linkedItemId, i);
         }
       }
     }
@@ -488,6 +573,15 @@ function summarise(data, month) {
   }
   const otherAssets = Number(data.household?.assets) || 0;
 
+  let debtBalance = 0, debtPayment = 0;
+  for (const d of data.debts || []) {
+    if (!isObj(d)) continue;
+    debtBalance += Math.max(0, Number(d.balance) || 0);
+    debtPayment += isNum(d.paymentMonthly)
+      ? d.paymentMonthly
+      : (linkedPayment(data, d.linkedItemId) || 0);
+  }
+
   const topCats = [...byCat.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
@@ -501,6 +595,7 @@ function summarise(data, month) {
     savingsRate: income > 0 ? (income - expense + saving) / income : 0,
     activeItems, monthTx, byOwner, names, topCats,
     invTotal, invCost, invGain: invCostKnown - invCost,
+    debtBalance, debtPayment, netWorth: otherAssets + invTotal - debtBalance,
     invReturn: weightBase > 0 ? weighted / weightBase : null,
     otherAssets, totalAssets: otherAssets + invTotal
   };
@@ -525,6 +620,7 @@ function report(file, data, sum, asJson) {
         savingContributions: sum.saving, savingsRate: sum.savingsRate,
         totalAssets: sum.totalAssets, otherAssets: sum.otherAssets,
         investmentTotal: sum.invTotal, investmentGain: sum.invGain,
+        debtBalance: sum.debtBalance, netWorth: sum.netWorth,
         portfolioReturnPct: sum.invReturn,
         counts: {
           people: (data.people || []).length,
@@ -534,6 +630,7 @@ function report(file, data, sum, asJson) {
           transactions: (data.transactions || []).length,
           transactionsThisMonth: sum.monthTx,
           investments: (data.investments || []).length,
+          debts: (data.debts || []).length,
           plans: (data.plans || []).length
         }
       }
@@ -551,12 +648,18 @@ function report(file, data, sum, asJson) {
   if (sum.withGrowth) console.log(`  davon mit Progression ${String(sum.withGrowth).padStart(2)}`);
   console.log(`  Einzelbuchungen       ${(data.transactions || []).length}  (${sum.monthTx} in ${sum.month})`);
   console.log(`  Investments           ${(data.investments || []).length}`);
+  console.log(`  Kredite               ${(data.debts || []).length}`);
   console.log(`  Szenarien             ${(data.plans || []).length}`);
 
   console.log(`\nVermögen`);
   console.log(`  Investments           ${eur.format(sum.invTotal).padStart(12)}`);
   console.log(`  Sonstiges Vermögen    ${eur.format(sum.otherAssets).padStart(12)}`);
   console.log(`  Gesamt                ${eur.format(sum.totalAssets).padStart(12)}`);
+  if (sum.debtBalance) {
+    console.log(`  Schulden              ${eur.format(-sum.debtBalance).padStart(12)}`);
+    console.log(`  Nettovermögen         ${eur.format(sum.netWorth).padStart(12)}`);
+    console.log(`  Kreditraten           ${eur.format(sum.debtPayment).padStart(12)} / Monat`);
+  }
   if (sum.invCost > 0) {
     console.log(`  Gewinn / Verlust      ${eur.format(sum.invGain).padStart(12)}`);
   }
@@ -628,6 +731,7 @@ if (checkTop(data)) {
   const itemIds = checkItems(data, personIds, cats);
   checkTransactions(data, personIds, cats);
   checkInvestments(data, personIds, itemIds);
+  checkDebts(data, personIds, itemIds);
   checkPlans(data, personIds, itemIds, cats);
 }
 

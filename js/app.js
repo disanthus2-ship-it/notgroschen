@@ -9,7 +9,7 @@ window.HB = window.HB || {};
 
   var U = HB.util, S = HB.store, ui = HB.ui;
 
-  var VIEWS = ['dashboard', 'people', 'items', 'transactions', 'investments', 'plans', 'fire', 'data'];
+  var VIEWS = ['dashboard', 'people', 'items', 'transactions', 'investments', 'debts', 'plans', 'fire', 'data'];
   var current = 'dashboard';
   var pendingParams = null;
 

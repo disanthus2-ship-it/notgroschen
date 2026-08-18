@@ -169,6 +169,8 @@ HB.views = HB.views || {};
 
     var cards = U.el('div', { class: 'grid grid-auto' });
 
+    cards.appendChild(emergencyCard(state));
+
     // Haushalt
     cards.appendChild(ui.card({
       title: 'Haushalt (gemeinsam)',
@@ -178,7 +180,9 @@ HB.views = HB.views || {};
           miniRow('Einnahmen', s.household.income),
           miniRow('Ausgaben', s.household.expense),
           miniRow('Von den Personen zu tragen', s.householdNetCost),
-          miniRow('Gesamtvermögen', C.totalAssets(state))
+          miniRow('Gesamtvermögen', C.totalAssets(state)),
+          C.totalDebt(state) ? miniRow('Schulden', -C.totalDebt(state), true) : null,
+          C.totalDebt(state) ? miniRow('Nettovermögen', C.netWorth(state), true) : null
         ]),
         state.household.budget
           ? ui.meter({ used: s.household.expense, budget: state.household.budget, label: 'Haushaltsbudget' })
@@ -209,6 +213,47 @@ HB.views = HB.views || {};
 
     wrap.appendChild(cards);
     return wrap;
+  }
+
+  /**
+   * Der Notgroschen — die Kennzahl, nach der die App benannt ist: Wie lange
+   * tragen die sofort verfügbaren Mittel die Ausgaben ohne Einkommen?
+   */
+  function emergencyCard(state) {
+    // Bewusst ohne die Einmalbuchungen des Monats: Eine einzelne Anschaffung
+    // verkürzt die Reichweite nicht dauerhaft. Maßstab sind die laufenden Kosten.
+    var e = C.emergencyFund(state, { plans: selectedPlans(), month: view.month });
+    var reached = e.months != null && e.months >= e.targetMonths;
+
+    return ui.card({
+      title: 'Notgroschen',
+      sub: 'Reichweite ohne Einkommen',
+      actions: [
+        U.el('span', {
+          class: 'badge ' + (reached ? 'pos' : e.months != null && e.months >= e.targetMonths / 2 ? 'warn' : 'neg'),
+          text: e.months == null ? 'keine Ausgaben' : U.num(e.months, 1) + ' Monate'
+        })
+      ],
+      body: U.el('div', {}, [
+        U.el('div', { class: 'stack' }, [
+          miniRow('Sofort verfügbar', e.available),
+          miniRow('Monatlicher Bedarf', e.burn),
+          miniRow('Ziel: ' + U.num(e.targetMonths, 0) + ' Monate', e.targetAmount)
+        ]),
+        ui.meter({
+          used: Math.min(e.available, e.targetAmount),
+          budget: e.targetAmount || 1,
+          mode: 'progress',
+          label: 'Fortschritt zum Notgroschen'
+        }),
+        U.el('p', { class: 'small muted', style: { marginTop: '10px' } }, [
+          reached
+            ? 'Ziel erreicht. Sparbeiträge sind nicht eingerechnet — die würde man in einer solchen Lage aussetzen.'
+            : 'Es fehlen ' + U.currency(Math.max(0, e.gap), { digits: 0 }) +
+              '. Kreditraten laufen weiter und sind im Bedarf enthalten.'
+        ])
+      ])
+    });
   }
 
   function miniRow(label, value, tone) {

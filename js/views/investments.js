@@ -65,18 +65,24 @@ HB.views = HB.views || {};
     var other = Number(state.household.assets) || 0;
     var grid = U.el('div', { class: 'grid grid-4' });
 
+    var debt = C.totalDebt(state);
     grid.appendChild(ui.stat({
-      label: 'Gesamtvermögen',
-      value: U.currency(p.total + other, { digits: 0 }),
+      label: debt ? 'Nettovermögen' : 'Gesamtvermögen',
+      value: U.currency(p.total + other - debt, { digits: 0 }),
       hero: true,
-      sub: U.currency(p.total, { digits: 0 }) + ' investiert · ' +
-           U.currency(other, { digits: 0 }) + ' sonstiges Vermögen'
+      tone: ui.toneClass(p.total + other - debt),
+      sub: debt
+        ? U.currency(p.total + other, { digits: 0 }) + ' Vermögen − ' +
+          U.currency(debt, { digits: 0 }) + ' Schulden'
+        : U.currency(p.total, { digits: 0 }) + ' investiert · ' +
+          U.currency(other, { digits: 0 }) + ' sonstiges Vermögen'
     }));
 
     grid.appendChild(ui.stat({
       label: 'Investiertes Kapital',
       value: U.currency(p.total, { digits: 0 }),
-      sub: p.count + (p.count === 1 ? ' Position' : ' Positionen')
+      sub: p.count + (p.count === 1 ? ' Position' : ' Positionen') +
+        (p.liquid ? ' · ' + U.currency(p.liquid, { digits: 0 }) + ' davon liquide' : '')
     }));
 
     grid.appendChild(ui.stat({
@@ -253,6 +259,7 @@ HB.views = HB.views || {};
             U.el('th', { class: 'num', text: 'Aktueller Wert' }),
             U.el('th', { class: 'num', text: 'Gewinn' }),
             U.el('th', { class: 'num', text: 'Rendite p. a.' }),
+            U.el('th', { text: 'Reserve' }),
             U.el('th', { text: 'Sparplan' }),
             U.el('th', { class: 'num', text: '' })
           ])),
@@ -263,6 +270,7 @@ HB.views = HB.views || {};
             U.el('td', { class: 'num', text: U.currency(sumValue, { digits: 0 }) }),
             U.el('td', { class: 'num ' + ui.toneClass(sumValue - sumCost), text: sumCost ? U.currency(sumValue - sumCost, { digits: 0, sign: true }) : '—' }),
             U.el('td', { class: 'num', text: p.weightedReturn == null ? '—' : U.num(p.weightedReturn, 2) + ' %' }),
+            U.el('td', { text: '' }),
             U.el('td', { text: sumContrib ? U.currency(sumContrib, { digits: 0 }) + ' / Monat' : '' }),
             U.el('td', { text: '' })
           ]))
@@ -295,6 +303,9 @@ HB.views = HB.views || {};
               (cost > 0 ? ' (' + U.pct(gain / cost, 1) + ')' : '')
       }),
       U.el('td', { class: 'num', text: inv.expectedReturnPct == null ? '—' : U.num(inv.expectedReturnPct, 2) + ' %' }),
+      U.el('td', {}, C.isLiquid(inv)
+        ? U.el('span', { class: 'badge pos', text: 'liquide' })
+        : U.el('span', { class: 'small muted', text: '—' })),
       U.el('td', {}, link
         ? U.el('div', {}, [
             U.el('div', { class: 'small', text: link.label }),
@@ -317,7 +328,7 @@ HB.views = HB.views || {};
       id: U.uid('inv'), label: '', type: 'etf', owner: 'household',
       currentValue: null, costBasis: null,
       expectedReturnPct: C.INVESTMENT_TYPES.etf.defaultReturn,
-      linkedItemId: null, provider: '', note: ''
+      liquid: null, linkedItemId: null, provider: '', note: ''
     };
 
     var labelIn = ui.textInput(draft.label, { placeholder: 'z. B. MSCI World ETF' });
@@ -325,6 +336,7 @@ HB.views = HB.views || {};
     var costIn = ui.numInput(draft.costBasis, { placeholder: 'unbekannt' });
     var returnIn = ui.numInput(draft.expectedReturnPct, { step: '0.1', placeholder: 'ohne Erwartung' });
     var providerIn = ui.textInput(draft.provider, { placeholder: 'Depot, Bank, Broker' });
+    var liquidIn = U.el('input', { type: 'checkbox', checked: C.isLiquid(draft) });
     var noteIn = ui.textInput(draft.note, { placeholder: 'optional' });
     var ownerSel = ui.select(ui.ownerOptions(state), draft.owner, function (v) {
       draft.owner = v;
@@ -440,6 +452,9 @@ HB.views = HB.views || {};
           ui.field('Einstandswert (€)', costIn, 'Summe der Einzahlungen, optional'),
           ui.field('Erwartete Rendite (% p. a.)', returnIn, 'Vorgabe je Anlageart, frei änderbar'),
           ui.field('Anbieter', providerIn),
+          ui.field('Zählt zum Notgroschen',
+            U.el('label', { class: 'checkline' }, [liquidIn, U.el('span', { text: 'kurzfristig verfügbar' })]),
+            'Nur was ohne Kursrisiko und ohne Bindung greifbar ist'),
           ui.field('Notiz', noteIn, null, 'full')
         ]),
         gainPreview,
@@ -472,6 +487,9 @@ HB.views = HB.views || {};
             draft.expectedReturnPct = returnIn.value === '' ? null : U.parseNum(returnIn.value);
             draft.provider = providerIn.value.trim();
             draft.note = noteIn.value.trim();
+            // Nur speichern, wenn von der Vorgabe der Anlageart abgewichen wird.
+            var typeDefault = !!(C.INVESTMENT_TYPES[draft.type] || {}).liquid;
+            draft.liquid = liquidIn.checked === typeDefault ? null : liquidIn.checked;
 
             S.update(function (st) {
               if (makeNew) {
@@ -482,7 +500,7 @@ HB.views = HB.views || {};
                   interval: newIntervalSel.value,
                   kind: 'expense',
                   owner: draft.owner,
-                  categoryId: 'cat_saving',
+                  categoryId: C.fallbackCategory(st, 'expense', 'cat_saving'),
                   start: null, end: null, active: true,
                   note: 'Einzahlung in ' + label
                 };

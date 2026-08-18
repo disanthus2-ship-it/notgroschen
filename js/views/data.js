@@ -152,11 +152,25 @@ HB.views = HB.views || {};
       }
     });
 
+    var emergencyIn = ui.numInput(state.settings.emergencyMonths, {
+      step: '1', min: '1',
+      onchange: function (e) {
+        var v = Math.max(1, Math.round(U.parseNum(e.target.value)) || 4);
+        S.update(function (st) { st.settings.emergencyMonths = v; }, 'settings');
+      }
+    });
+
     return ui.card({
       title: 'Darstellung & Vorgaben',
       body: U.el('div', {}, [
         ui.field('Design', themeSel, 'Das helle Design ist die Vorgabe; „Wie das System“ folgt der Einstellung des Betriebssystems.'),
         ui.field('Startmonat der Planung', startIn, 'Ausgangspunkt für Projektion und FIRE-Rechnung'),
+        ui.field('Ziel für den Notgroschen (Monate)', emergencyIn,
+          'Wie viele Monatsausgaben die sofort verfügbaren Mittel abdecken sollen'),
+        ui.field('Kategorien', U.el('button', {
+          class: 'btn', text: 'Kategorien verwalten',
+          onclick: function () { HB.views.items.manageCategories(); }
+        }), 'Anlegen, umbenennen, löschen — auch die mitgelieferten'),
         U.el('div', { class: 'callout', style: { marginTop: '4px' } }, [
           'Auto-Speicherung ist aktiv: Jede Änderung landet sofort im lokalen Speicher dieses Browsers. ' +
           'Für Backups, Gerätewechsel oder das Teilen mit der zweiten Person ist trotzdem die Datei der richtige Weg.'

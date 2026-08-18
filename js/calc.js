@@ -79,30 +79,102 @@ window.HB = window.HB || {};
     return perMonth(item) * growthFactor(item.growth, key);
   }
 
+  /* --- Fälligkeit --------------------------------------------------------- */
+
+  /** Abstand zwischen zwei Zahlungen in Monaten (jährlich = 12, quartalsweise = 3). */
+  function intervalMonths(interval) {
+    var iv = INTERVALS[interval] || INTERVALS.monthly;
+    return 1 / iv.perMonth;
+  }
+
+  /** Fällt dieser Posten in diesem Monat tatsächlich an? */
+  function dueIn(item, key) {
+    var months = Math.round(intervalMonths(item.interval));
+    if (months <= 1) return true;                 // wöchentlich bis monatlich
+    if (item.dueMonth == null) return true;       // ohne Angabe gleichmäßig verteilt
+    var m = parseInt(String(key).split('-')[1], 10);
+    return ((m - item.dueMonth) % months + months) % months === 0;
+  }
+
+  /**
+   * Kassenwirksamer Betrag eines Monats — im Gegensatz zu perMonthAt, das
+   * Jahres- und Quartalsposten gleichmäßig verteilt. Ist am Posten eine
+   * Fälligkeit hinterlegt, trifft der volle Betrag genau in seinem Monat ein
+   * und in den übrigen Monaten gar nichts.
+   */
+  function cashAt(item, key) {
+    var months = Math.round(intervalMonths(item.interval));
+    if (months <= 1 || item.dueMonth == null) return perMonthAt(item, key);
+    if (!dueIn(item, key)) return 0;
+    return (Number(item.amount) || 0) * growthFactor(item.growth, key);
+  }
+
   /* --- Anlagearten -------------------------------------------------------- */
 
   /**
    * Die Renditen sind Vorgaben für das Formular, keine Prognosen — sie lassen
    * sich je Investment überschreiben und sind bewusst zurückhaltend gewählt.
    */
+  /**
+   * `liquid` ist die Vorgabe für den Notgroschen und bewusst streng: Als
+   * Reserve zählt, was ohne Kursrisiko und ohne Bindung verfügbar ist. Wer
+   * seinen ETF als Rücklage betrachtet, kann das je Position umstellen.
+   */
   var INVESTMENT_TYPES = {
-    etf:         { label: 'ETF',                  defaultReturn: 6.5 },
-    aktien:      { label: 'Aktien (Einzelwerte)', defaultReturn: 7 },
-    fonds:       { label: 'Investmentfonds',      defaultReturn: 5 },
-    anleihen:    { label: 'Anleihen',             defaultReturn: 3 },
-    fixzins:     { label: 'Fixzinssparen',        defaultReturn: 3 },
-    tagesgeld:   { label: 'Tages- & Festgeld',    defaultReturn: 2.5 },
-    bausparer:   { label: 'Bausparvertrag',       defaultReturn: 1.5 },
-    versicherung:{ label: 'Lebens-/Rentenversicherung', defaultReturn: 2 },
-    vorsorge:    { label: 'Betriebliche Vorsorge', defaultReturn: 3 },
-    immobilie:   { label: 'Immobilie',            defaultReturn: 3 },
-    edelmetall:  { label: 'Edelmetalle & Rohstoffe', defaultReturn: 3 },
-    krypto:      { label: 'Kryptowährungen',      defaultReturn: 8 },
-    sonstiges:   { label: 'Sonstiges',            defaultReturn: 3 }
+    etf:         { label: 'ETF',                  defaultReturn: 6.5, liquid: false },
+    aktien:      { label: 'Aktien (Einzelwerte)', defaultReturn: 7,   liquid: false },
+    fonds:       { label: 'Investmentfonds',      defaultReturn: 5,   liquid: false },
+    anleihen:    { label: 'Anleihen',             defaultReturn: 3,   liquid: false },
+    fixzins:     { label: 'Fixzinssparen',        defaultReturn: 3,   liquid: false },
+    tagesgeld:   { label: 'Tages- & Festgeld',    defaultReturn: 2.5, liquid: true },
+    bausparer:   { label: 'Bausparvertrag',       defaultReturn: 1.5, liquid: false },
+    versicherung:{ label: 'Lebens-/Rentenversicherung', defaultReturn: 2, liquid: false },
+    vorsorge:    { label: 'Betriebliche Vorsorge', defaultReturn: 3,  liquid: false },
+    immobilie:   { label: 'Immobilie',            defaultReturn: 3,   liquid: false },
+    edelmetall:  { label: 'Edelmetalle & Rohstoffe', defaultReturn: 3, liquid: false },
+    krypto:      { label: 'Kryptowährungen',      defaultReturn: 8,   liquid: false },
+    sonstiges:   { label: 'Sonstiges',            defaultReturn: 3,   liquid: false }
   };
+
+  /** Kreditarten. `label` erscheint in Auswahl und Tabelle. */
+  var DEBT_TYPES = {
+    mortgage:   { label: 'Wohnkredit / Hypothek' },
+    consumer:   { label: 'Konsumkredit' },
+    car:        { label: 'Auto- / Leasingfinanzierung' },
+    education:  { label: 'Bildungskredit' },
+    creditcard: { label: 'Kreditkarte / Überziehung' },
+    privateloan:{ label: 'Privatdarlehen' },
+    other:      { label: 'Sonstiges' }
+  };
+
+  function debtTypeLabel(t) {
+    return (DEBT_TYPES[t] || DEBT_TYPES.other).label;
+  }
+
+  /** Gilt diese Position als jederzeit verfügbare Reserve? */
+  function isLiquid(inv) {
+    if (inv.liquid != null) return !!inv.liquid;
+    var t = INVESTMENT_TYPES[inv.type] || INVESTMENT_TYPES.sonstiges;
+    return !!t.liquid;
+  }
 
   function typeLabel(t) {
     return (INVESTMENT_TYPES[t] || INVESTMENT_TYPES.sonstiges).label;
+  }
+
+  /* --- Kategorie-Rückfall -------------------------------------------------- */
+
+  /**
+   * Kategorien sind vollständig löschbar, auch die mitgelieferten. Wo Code
+   * früher fest auf `cat_other` zeigte, muss er deshalb die erste passende
+   * Kategorie des Bestands nehmen.
+   */
+  function fallbackCategory(state, kind, prefer) {
+    var cats = state.categories || [];
+    var wanted = kind === 'income' ? 'income' : 'expense';
+    if (prefer && U.byId(cats, prefer)) return prefer;
+    var hit = cats.filter(function (c) { return c.kind === wanted; })[0];
+    return hit ? hit.id : (cats[0] ? cats[0].id : null);
   }
 
   /* --- Flüsse eines Monats ------------------------------------------------ */
@@ -116,10 +188,15 @@ window.HB = window.HB || {};
     opts = opts || {};
     var flows = [];
 
+    // Ist ein Kredit abbezahlt, endet auch die verknüpfte Rate — sonst zahlt
+    // die Projektion einen Kredit weiter, den es nicht mehr gibt.
+    var payoff = opts.debtPayoff || debtPayoffMap(state);
+
     state.items.forEach(function (it) {
       if (it.active === false) return;
       if (!U.inRange(key, it.start, it.end)) return;
-      var amt = perMonthAt(it, key);
+      if (payoff[it.id] && U.monthIndex(key) > U.monthIndex(payoff[it.id])) return;
+      var amt = opts.cash ? cashAt(it, key) : perMonthAt(it, key);
       if (!amt) return;
       flows.push({
         id: it.id, itemId: it.id, label: it.label, kind: it.kind,
@@ -142,7 +219,7 @@ window.HB = window.HB || {};
     }
 
     var plans = opts.plans || [];
-    if (plans.length) flows = applyPlans(flows, plans, key);
+    if (plans.length) flows = applyPlans(flows, plans, key, state);
 
     return flows;
   }
@@ -161,7 +238,7 @@ window.HB = window.HB || {};
     }
   }
 
-  function applyPlans(flows, plans, key) {
+  function applyPlans(flows, plans, key, state) {
     var out = flows.map(function (f) { return Object.assign({}, f); });
 
     plans.forEach(function (plan) {
@@ -175,7 +252,7 @@ window.HB = window.HB || {};
             label: adj.label || plan.name,
             kind: adj.kind === 'income' ? 'income' : 'expense',
             owner: adj.targetId || 'household',
-            categoryId: adj.categoryId || (adj.kind === 'income' ? 'cat_sidejob' : 'cat_shopping'),
+            categoryId: fallbackCategory(state, adj.kind, adj.categoryId),
             amount: Math.abs(Number(adj.value) || 0),
             source: 'plan', planId: plan.id
           });
@@ -218,7 +295,7 @@ window.HB = window.HB || {};
               label: adj.label || plan.name,
               kind: adj.kind === 'income' ? 'income' : 'expense',
               owner: adj.scope === 'person' ? adj.targetId : 'household',
-              categoryId: adj.categoryId || (adj.kind === 'income' ? 'cat_sidejob' : 'cat_other'),
+              categoryId: fallbackCategory(state, adj.kind, adj.categoryId),
               amount: Math.abs(delta),
               source: 'plan', planId: plan.id
             });
@@ -363,6 +440,146 @@ window.HB = window.HB || {};
     return summarize(state, monthFlows(state, key, opts));
   }
 
+  /* --- Kredite ------------------------------------------------------------ */
+
+  /**
+   * Monatliche Rate eines Kredits. Ist ein Posten verknüpft, ist er die
+   * Wahrheit — der Geldfluss steht dann genau einmal im Budget, wie bei den
+   * Sparplänen der Investments. Nur ohne Verknüpfung zählt `paymentMonthly`.
+   */
+  function debtPayment(state, debt, key) {
+    var it = debt.linkedItemId ? U.byId(state.items, debt.linkedItemId) : null;
+    if (it && it.active !== false) return perMonthAt(it, key || U.monthKey());
+    return Number(debt.paymentMonthly) || 0;
+  }
+
+  /**
+   * Tilgungsplan ab `from`. Rechnet Monat für Monat: Zins auf die Restschuld,
+   * der Rest der Rate tilgt. Reicht die Rate nicht einmal für die Zinsen,
+   * wächst die Schuld — das wird als `neverPaysOff` gemeldet statt endlos
+   * gerechnet.
+   */
+  function debtSchedule(state, debt, opts) {
+    opts = opts || {};
+    var from = opts.from || state.settings.startMonth || U.monthKey();
+    var maxMonths = opts.maxMonths || 600;
+    var rate = (Number(debt.interestPct) || 0) / 100 / 12;
+
+    var balance = Math.max(0, Number(debt.balance) || 0);
+    var series = [{ key: from, balance: balance, interest: 0, principal: 0 }];
+    var totalInterest = 0;
+    var payoffKey = balance <= 0 ? from : null;
+    var neverPaysOff = false;
+
+    for (var i = 0; i < maxMonths && balance > 0; i++) {
+      var key = U.addMonths(from, i);
+      var payment = debtPayment(state, debt, key);
+      var interest = balance * rate;
+
+      if (payment <= interest + 1e-9) { neverPaysOff = true; break; }
+
+      var principal = Math.min(payment - interest, balance);
+      balance = balance - principal;
+      totalInterest += interest;
+
+      series.push({
+        key: U.addMonths(from, i + 1),
+        balance: balance, interest: interest, principal: principal
+      });
+      if (balance <= 1e-6) { payoffKey = U.addMonths(from, i); break; }
+    }
+
+    var months = payoffKey ? U.monthDiff(from, payoffKey) : null;
+    return {
+      from: from,
+      series: series,
+      payoffKey: payoffKey,
+      months: months,
+      years: months == null ? null : months / 12,
+      totalInterest: totalInterest,
+      neverPaysOff: neverPaysOff,
+      monthlyPayment: debtPayment(state, debt, from),
+      monthlyInterest: (Number(debt.balance) || 0) * rate
+    };
+  }
+
+  /** Restschuld eines Kredits im angegebenen Monat. */
+  function debtBalanceAt(state, debt, key, schedule) {
+    var sch = schedule || debtSchedule(state, debt);
+    var idx = U.monthDiff(sch.from, key);
+    if (idx <= 0) return Number(debt.balance) || 0;
+    if (idx >= sch.series.length) {
+      return sch.neverPaysOff ? sch.series[sch.series.length - 1].balance : 0;
+    }
+    return sch.series[idx].balance;
+  }
+
+  /**
+   * Zuordnung Posten-ID → Monat der letzten Rate. Wird von monthFlows genutzt,
+   * um abbezahlte Kredite auslaufen zu lassen.
+   */
+  /**
+   * Der Anker ist immer der Startmonat der Planung, nie der gerade betrachtete
+   * Monat: `balance` ist der Stand von heute. Würde man den Plan ab einem
+   * späteren Monat mit demselben Startsaldo rechnen, verschöbe sich das
+   * Tilgungsende mit jedem Aufruf nach hinten.
+   */
+  function debtPayoffMap(state) {
+    var out = {};
+    (state.debts || []).forEach(function (d) {
+      if (!d.linkedItemId) return;
+      var sch = debtSchedule(state, d);
+      if (sch.payoffKey && !sch.neverPaysOff) out[d.linkedItemId] = sch.payoffKey;
+    });
+    return out;
+  }
+
+  /** Verdichtet alle Kredite: Restschuld, Rate, Zinslast, Tilgungsfortschritt. */
+  function debtSummary(state) {
+    var list = state.debts || [];
+    var now = U.monthKey();
+    var res = {
+      count: list.length,
+      balance: 0, principal: 0, paidOff: 0,
+      monthlyPayment: 0, monthlyInterest: 0,
+      byOwner: {}, byType: {},
+      weightedRate: null,
+      longest: null
+    };
+
+    var weighted = 0, weightBase = 0;
+
+    list.forEach(function (d) {
+      var bal = Math.max(0, Number(d.balance) || 0);
+      res.balance += bal;
+      res.byOwner[d.owner] = (res.byOwner[d.owner] || 0) + bal;
+      res.byType[d.type] = (res.byType[d.type] || 0) + bal;
+
+      if (d.principal != null && Number(d.principal) > 0) {
+        res.principal += Number(d.principal);
+        res.paidOff += Math.max(0, Number(d.principal) - bal);
+      }
+      res.monthlyPayment += debtPayment(state, d, now);
+      res.monthlyInterest += bal * ((Number(d.interestPct) || 0) / 100 / 12);
+
+      if (d.interestPct != null && bal > 0) {
+        weighted += bal * Number(d.interestPct);
+        weightBase += bal;
+      }
+
+      var sch = debtSchedule(state, d);
+      if (sch.payoffKey && !sch.neverPaysOff) {
+        if (!res.longest || U.monthIndex(sch.payoffKey) > U.monthIndex(res.longest)) {
+          res.longest = sch.payoffKey;
+        }
+      }
+    });
+
+    res.weightedRate = weightBase > 0 ? weighted / weightBase : null;
+    res.paidOffPct = res.principal > 0 ? res.paidOff / res.principal : null;
+    return res;
+  }
+
   /* --- Investments -------------------------------------------------------- */
 
   /**
@@ -378,6 +595,7 @@ window.HB = window.HB || {};
       costKnown: 0,          // Bestandswert der Posten mit bekanntem Einstand
       gain: 0,
       gainPct: null,
+      liquid: 0,             // Teil des Bestands, der als Reserve zählt
       byType: {},
       byOwner: {},
       weightedReturn: null,
@@ -390,6 +608,7 @@ window.HB = window.HB || {};
     list.forEach(function (inv) {
       var v = Number(inv.currentValue) || 0;
       res.total += v;
+      if (isLiquid(inv)) res.liquid += v;
 
       res.byType[inv.type] = (res.byType[inv.type] || 0) + v;
       res.byOwner[inv.owner] = (res.byOwner[inv.owner] || 0) + v;
@@ -425,6 +644,49 @@ window.HB = window.HB || {};
     return investmentSummary(state).weightedReturn;
   }
 
+  /** Summe aller Restschulden. */
+  function totalDebt(state) {
+    return U.sum(state.debts || [], function (d) { return Math.max(0, Number(d.balance) || 0); });
+  }
+
+  /** Vermögen abzüglich Schulden — die Zahl, die tatsächlich jemandem gehört. */
+  function netWorth(state) {
+    return totalAssets(state) - totalDebt(state);
+  }
+
+  /**
+   * Jederzeit verfügbare Mittel: das Vermögen außerhalb der Investments
+   * (Girokonto, Bargeld) plus die als liquide markierten Positionen.
+   */
+  function liquidAssets(state) {
+    return (Number(state.household.assets) || 0) + investmentSummary(state).liquid;
+  }
+
+  /**
+   * Der Notgroschen: Wie viele Monate tragen die liquiden Mittel die Ausgaben,
+   * wenn das Einkommen ausbleibt? Sparbeiträge zählen nicht mit — die würde
+   * man in einer solchen Lage als Erstes aussetzen. Kreditraten dagegen laufen
+   * weiter und bleiben deshalb drin.
+   */
+  function emergencyFund(state, opts) {
+    opts = opts || {};
+    var key = opts.month || U.monthKey();
+    var sum = opts.summary || monthSummary(state, key, { plans: opts.plans || [] });
+    var burn = Math.max(0, sum.expense - sum.savingContrib);
+    var available = liquidAssets(state);
+    var target = Number(state.settings.emergencyMonths) || 4;
+
+    return {
+      available: available,
+      burn: burn,
+      months: burn > 0 ? available / burn : null,
+      targetMonths: target,
+      targetAmount: burn * target,
+      gap: burn * target - available,
+      ratio: burn > 0 ? (available / burn) / target : 0
+    };
+  }
+
   /* --- Projektion --------------------------------------------------------- */
 
   /**
@@ -440,6 +702,13 @@ window.HB = window.HB || {};
     var assets = opts.startAssets != null ? opts.startAssets : totalAssets(state);
     var rMonthly = opts.returnPct ? Math.pow(1 + opts.returnPct / 100, 1 / 12) - 1 : 0;
 
+    // Einmal je Projektion statt einmal je Monat berechnen. Anker ist der
+    // Startmonat der Planung, damit die Restschuld überall dieselbe bleibt.
+    var payoff = debtPayoffMap(state);
+    var schedules = (state.debts || []).map(function (d) {
+      return { debt: d, sch: debtSchedule(state, d) };
+    });
+
     var rows = [];
     var cum = 0;
 
@@ -447,11 +716,17 @@ window.HB = window.HB || {};
       var key = U.addMonths(from, i);
       var s = summarize(state, monthFlows(state, key, {
         plans: plans,
-        includeTransactions: !!opts.includeTransactions
+        includeTransactions: !!opts.includeTransactions,
+        debtPayoff: payoff
       }));
       var contribution = s.net + s.savingContrib;
       cum += s.net;
       assets = assets * (1 + rMonthly) + contribution;
+
+      var debt = 0;
+      schedules.forEach(function (x) {
+        debt += debtBalanceAt(state, x.debt, key, x.sch);
+      });
 
       rows.push({
         key: key,
@@ -462,7 +737,61 @@ window.HB = window.HB || {};
         contribution: contribution,
         cumulative: cum,
         assets: assets,
+        debt: debt,
+        netWorth: assets - debt,
         summary: s
+      });
+    }
+    return rows;
+  }
+
+  /* --- Liquiditätsvorschau ------------------------------------------------- */
+
+  /**
+   * Kontostandskurve der liquiden Mittel. Anders als die Projektion glättet
+   * sie nichts: Jahresprämien und Quartalszahlungen treffen in ihrem
+   * Fälligkeitsmonat mit dem vollen Betrag ein. Erst dadurch wird sichtbar,
+   * ob das Konto einen teuren Monat trägt.
+   */
+  function liquidityProjection(state, opts) {
+    opts = opts || {};
+    var from = opts.from || state.settings.startMonth || U.monthKey();
+    var months = opts.months || 24;
+    var plans = opts.plans || [];
+    var balance = opts.start != null ? opts.start : liquidAssets(state);
+    var payoff = debtPayoffMap(state);
+
+    var rows = [];
+    for (var i = 0; i < months; i++) {
+      var key = U.addMonths(from, i);
+      var flows = monthFlows(state, key, {
+        plans: plans,
+        includeTransactions: opts.includeTransactions !== false,
+        cash: true,
+        debtPayoff: payoff
+      });
+
+      var inflow = 0, outflow = 0;
+      var spikes = [];
+      flows.forEach(function (f) {
+        if (f.kind === 'income') inflow += f.amount;
+        else outflow += f.amount;
+        // Als Ausschlag gilt, was nur in diesem Monat anfällt.
+        if (f.source === 'recurring') {
+          var it = U.byId(state.items, f.itemId);
+          if (it && it.dueMonth != null && Math.round(intervalMonths(it.interval)) > 1) {
+            spikes.push({ label: it.label, amount: f.amount, kind: f.kind });
+          }
+        } else if (f.source !== 'recurring') {
+          spikes.push({ label: f.label, amount: f.amount, kind: f.kind });
+        }
+      });
+
+      balance += inflow - outflow;
+      rows.push({
+        key: key, inflow: inflow, outflow: outflow,
+        net: inflow - outflow, balance: balance,
+        spikes: spikes.sort(function (a, b) { return b.amount - a.amount; })
       });
     }
     return rows;
@@ -706,8 +1035,15 @@ window.HB = window.HB || {};
   HB.calc = {
     INTERVALS: INTERVALS,
     INVESTMENT_TYPES: INVESTMENT_TYPES,
+    DEBT_TYPES: DEBT_TYPES,
     GROWTH_PRESETS: GROWTH_PRESETS,
     typeLabel: typeLabel,
+    debtTypeLabel: debtTypeLabel,
+    isLiquid: isLiquid,
+    fallbackCategory: fallbackCategory,
+    intervalMonths: intervalMonths,
+    dueIn: dueIn,
+    cashAt: cashAt,
     perMonth: perMonth,
     perMonthAt: perMonthAt,
     perYear: perYear,
@@ -717,6 +1053,16 @@ window.HB = window.HB || {};
     investmentSummary: investmentSummary,
     totalAssets: totalAssets,
     portfolioReturn: portfolioReturn,
+    debtPayment: debtPayment,
+    debtSchedule: debtSchedule,
+    debtBalanceAt: debtBalanceAt,
+    debtPayoffMap: debtPayoffMap,
+    debtSummary: debtSummary,
+    totalDebt: totalDebt,
+    netWorth: netWorth,
+    liquidAssets: liquidAssets,
+    emergencyFund: emergencyFund,
+    liquidityProjection: liquidityProjection,
     monthFlows: monthFlows,
     applyPlans: applyPlans,
     summarize: summarize,

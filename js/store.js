@@ -64,7 +64,8 @@ window.HB = window.HB || {};
         startMonth: U.monthKey(),
         projectionMonths: 60,
         sankeyMode: 'budget',      // 'budget' | 'direct'
-        sankeyMinShare: 1.5        // Anteil in %, darunter wird zu "Sonstige" gefaltet
+        sankeyMinShare: 1.5,       // Anteil in %, darunter wird zu "Sonstige" gefaltet
+        emergencyMonths: 4         // Zielreichweite des Notgroschens in Monaten
       },
       // assets = Vermögen außerhalb der Investments (Girokonto, Bargeld, Sparbuch).
       // Das Gesamtvermögen ist assets + Summe der Investments, siehe calc.totalAssets.
@@ -74,6 +75,7 @@ window.HB = window.HB || {};
       items: [],
       transactions: [],
       investments: [],
+      debts: [],
       plans: [],
       fire: defaultFire()
     };
@@ -100,6 +102,7 @@ window.HB = window.HB || {};
         id: U.uid('itm'), label: o.l, amount: o.a, interval: o.i || 'monthly',
         kind: o.k, owner: o.o, categoryId: o.c,
         start: null, end: null,
+        dueMonth: o.d || null,
         growth: o.g ? { pct: o.g, everyMonths: o.ge || 12, from: nextJan, until: null } : null,
         active: true, note: ''
       };
@@ -108,9 +111,9 @@ window.HB = window.HB || {};
     s.items = [
       // Einnahmen
       item({ l: 'Gehalt (netto)',        a: 2900, k: 'income', o: a.id, c: 'cat_salary', g: 3 }),
-      item({ l: '13./14. Gehalt',        a: 5800, i: 'yearly', k: 'income', o: a.id, c: 'cat_bonus', g: 3 }),
+      item({ l: '13./14. Gehalt',        a: 2900, i: 'semiannual', d: 6, k: 'income', o: a.id, c: 'cat_bonus', g: 3 }),
       item({ l: 'Gehalt (netto)',        a: 2250, k: 'income', o: r.id, c: 'cat_salary', g: 2.5 }),
-      item({ l: '13./14. Gehalt',        a: 4500, i: 'yearly', k: 'income', o: r.id, c: 'cat_bonus', g: 2.5 }),
+      item({ l: '13./14. Gehalt',        a: 2250, i: 'semiannual', d: 6, k: 'income', o: r.id, c: 'cat_bonus', g: 2.5 }),
       item({ l: 'Nebentätigkeit',        a: 280,  k: 'income', o: r.id, c: 'cat_sidejob' }),
       item({ l: 'Familienbeihilfe',      a: 141.5, k: 'income', o: 'household', c: 'cat_transfer' }),
 
@@ -122,15 +125,16 @@ window.HB = window.HB || {};
       item({ l: 'Streaming-Abos',        a: 34,   k: 'expense', o: 'household', c: 'cat_comms' }),
       item({ l: 'Lebensmittel',          a: 820,  k: 'expense', o: 'household', c: 'cat_food' }),
       item({ l: 'Drogerie & Haushalt',   a: 125,  k: 'expense', o: 'household', c: 'cat_food' }),
-      item({ l: 'Haushaltsversicherung', a: 340,  i: 'yearly', k: 'expense', o: 'household', c: 'cat_insurance' }),
+      item({ l: 'Haushaltsversicherung', a: 340,  i: 'yearly', d: 3, k: 'expense', o: 'household', c: 'cat_insurance' }),
       item({ l: 'Lebensversicherung',    a: 96,   k: 'expense', o: 'household', c: 'cat_insurance' }),
-      item({ l: 'Auto-Leasing',          a: 319,  k: 'expense', o: 'household', c: 'cat_mobility' }),
-      item({ l: 'Kfz-Versicherung & Steuer', a: 980, i: 'yearly', k: 'expense', o: 'household', c: 'cat_mobility' }),
+      item({ l: 'Autokredit (Rate)',      a: 319,  k: 'expense', o: 'household', c: 'cat_debt' }),
+      item({ l: 'Bildungskredit (Rate)',  a: 120,  k: 'expense', o: r.id, c: 'cat_debt' }),
+      item({ l: 'Kfz-Versicherung & Steuer', a: 980, i: 'yearly', d: 1, k: 'expense', o: 'household', c: 'cat_mobility' }),
       item({ l: 'Treibstoff',            a: 165,  k: 'expense', o: 'household', c: 'cat_mobility' }),
-      item({ l: 'Öffi-Jahreskarte',      a: 365,  i: 'yearly', k: 'expense', o: 'household', c: 'cat_mobility' }),
+      item({ l: 'Öffi-Jahreskarte',      a: 365,  i: 'yearly', d: 9, k: 'expense', o: 'household', c: 'cat_mobility' }),
       item({ l: 'Kindergarten',          a: 210,  k: 'expense', o: 'household', c: 'cat_kids' }),
       item({ l: 'Arzt & Medikamente',    a: 75,   k: 'expense', o: 'household', c: 'cat_health' }),
-      item({ l: 'Urlaubsbudget',         a: 3000, i: 'yearly', k: 'expense', o: 'household', c: 'cat_travel' }),
+      item({ l: 'Urlaubsbudget',         a: 3000, i: 'yearly', d: 7, k: 'expense', o: 'household', c: 'cat_travel' }),
       item({ l: 'ETF-Sparplan',          a: 600,  k: 'expense', o: 'household', c: 'cat_saving' }),
 
       // Persönliche Ausgaben
@@ -151,6 +155,11 @@ window.HB = window.HB || {};
         id: U.uid('inv'), label: 'MSCI World ETF', type: 'etf', owner: 'household',
         currentValue: 21400, costBasis: 18200, expectedReturnPct: 6.5,
         linkedItemId: etfItem ? etfItem.id : null, provider: 'Depotbank', note: ''
+      },
+      {
+        id: U.uid('inv'), label: 'Notgroschen-Konto', type: 'tagesgeld', owner: 'household',
+        currentValue: 9000, costBasis: 9000, expectedReturnPct: 2.5,
+        linkedItemId: null, provider: 'Direktbank', note: 'Jederzeit verfügbar'
       },
       {
         id: U.uid('inv'), label: 'Fixzinssparen 3 Jahre', type: 'fixzins', owner: 'household',
@@ -182,6 +191,24 @@ window.HB = window.HB || {};
       tx(14, 'Steuerausgleich',      620, 'income',  r.id, 'cat_transfer'),
       tx(19, 'Geschenk Geburtstag',   75, 'expense', r.id, 'cat_shopping'),
       tx(22, 'Dividenden',           145, 'income',  'household', 'cat_capital')
+    ];
+
+    var autoItem = s.items.filter(function (i) { return i.label === 'Autokredit (Rate)'; })[0];
+    var eduItem = s.items.filter(function (i) { return i.label === 'Bildungskredit (Rate)'; })[0];
+
+    s.debts = [
+      {
+        id: U.uid('dbt'), label: 'Autofinanzierung', type: 'car', owner: 'household',
+        balance: 11400, principal: 18900, interestPct: 5.9,
+        paymentMonthly: null, linkedItemId: autoItem ? autoItem.id : null,
+        provider: 'Hausbank', note: ''
+      },
+      {
+        id: U.uid('dbt'), label: 'Bildungskredit', type: 'education', owner: r.id,
+        balance: 4200, principal: 9000, interestPct: 2.5,
+        paymentMonthly: null, linkedItemId: eduItem ? eduItem.id : null,
+        provider: 'Förderbank', note: 'Zinsgestützt'
+      }
     ];
 
     s.plans = [
@@ -236,6 +263,12 @@ window.HB = window.HB || {};
    * übernommen — eine halbe Angabe (etwa ohne Startmonat) würde in der
    * Oberfläche als aktiv erscheinen, ohne je zu wirken.
    */
+  /** Fälligkeitsmonat 1–12; alles andere heißt „gleichmäßig verteilt". */
+  function normalizeDueMonth(v) {
+    var n = Math.round(Number(v));
+    return Number.isFinite(n) && n >= 1 && n <= 12 ? n : null;
+  }
+
   function normalizeGrowth(g) {
     if (!g || typeof g !== 'object') return null;
     var pct = Number(g.pct);
@@ -272,6 +305,7 @@ window.HB = window.HB || {};
       items: Array.isArray(raw.items) ? raw.items : [],
       transactions: Array.isArray(raw.transactions) ? raw.transactions : [],
       investments: Array.isArray(raw.investments) ? raw.investments : [],
+      debts: Array.isArray(raw.debts) ? raw.debts : [],
       plans: Array.isArray(raw.plans) ? raw.plans : [],
       fire: Object.assign(defaultFire(), raw.fire || {})
     };
@@ -293,9 +327,18 @@ window.HB = window.HB || {};
     s.categories.forEach(function (c) { validCat[c.id] = true; });
 
     function fixOwner(o) { return o === 'household' || validOwner[o] ? o : 'household'; }
+    // Kategorien sind vollständig löschbar — der Rückfall darf deshalb nicht
+    // auf feste IDs zeigen, sondern nimmt die erste passende des Bestands.
+    function firstOfKind(kind) {
+      var hit = s.categories.filter(function (c) { return c.kind === kind; })[0];
+      return hit ? hit.id : (s.categories[0] ? s.categories[0].id : null);
+    }
+    var fallbackIncome = firstOfKind('income');
+    var fallbackExpense = firstOfKind('expense');
+
     function fixCat(c, kind) {
       if (validCat[c]) return c;
-      return kind === 'income' ? 'cat_salary' : 'cat_other';
+      return kind === 'income' ? fallbackIncome : fallbackExpense;
     }
 
     s.items = s.items.map(function (it) {
@@ -310,6 +353,7 @@ window.HB = window.HB || {};
         categoryId: fixCat(it.categoryId, kind),
         start: it.start || null,
         end: it.end || null,
+        dueMonth: normalizeDueMonth(it.dueMonth),
         growth: normalizeGrowth(it.growth),
         active: it.active !== false,
         note: String(it.note || '')
@@ -344,11 +388,31 @@ window.HB = window.HB || {};
         costBasis: inv.costBasis == null || inv.costBasis === '' ? null : Number(inv.costBasis),
         expectedReturnPct: inv.expectedReturnPct == null || inv.expectedReturnPct === ''
           ? null : Number(inv.expectedReturnPct),
+        // null = Vorgabe der Anlageart, true/false = ausdrücklich gesetzt
+        liquid: inv.liquid == null ? null : !!inv.liquid,
         // Ein Verweis auf einen gelöschten Posten wird gekappt, sonst zeigt die
         // Oberfläche einen Sparplan an, den es nicht mehr gibt.
         linkedItemId: validItem[inv.linkedItemId] ? inv.linkedItemId : null,
         provider: String(inv.provider || ''),
         note: String(inv.note || '')
+      };
+    });
+
+    s.debts = s.debts.map(function (d, i) {
+      var type = HB.calc && HB.calc.DEBT_TYPES[d.type] ? d.type : 'other';
+      return {
+        id: d.id || U.uid('dbt'),
+        label: String(d.label || 'Kredit ' + (i + 1)),
+        type: type,
+        owner: fixOwner(d.owner),
+        balance: Math.max(0, Number(d.balance) || 0),
+        principal: d.principal == null || d.principal === '' ? null : Number(d.principal),
+        interestPct: Number(d.interestPct) || 0,
+        paymentMonthly: d.paymentMonthly == null || d.paymentMonthly === ''
+          ? null : Number(d.paymentMonthly),
+        linkedItemId: validItem[d.linkedItemId] ? d.linkedItemId : null,
+        provider: String(d.provider || ''),
+        note: String(d.note || '')
       };
     });
 

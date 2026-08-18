@@ -223,6 +223,13 @@ HB.views = HB.views || {};
         U.el('div', {}, [
           U.el('span', { style: { fontWeight: '500' }, text: it.label }),
           paused ? U.el('span', { class: 'badge', text: 'pausiert', style: { marginLeft: '6px' } }) : null,
+          it.dueMonth
+            ? U.el('span', {
+                class: 'badge', style: { marginLeft: '6px' },
+                title: 'Kassenwirksam im ' + U.monthLabel('2000-' + U.pad2(it.dueMonth), 'long').replace(' 2000', ''),
+                text: 'fällig ' + U.monthLabel('2000-' + U.pad2(it.dueMonth)).replace(' 2000', '')
+              })
+            : null,
           it.growth
             ? U.el('span', {
                 class: 'badge info', style: { marginLeft: '6px' },
@@ -268,7 +275,7 @@ HB.views = HB.views || {};
     var draft = it ? U.deepClone(it) : {
       id: U.uid('itm'), label: '', amount: null, interval: 'monthly',
       kind: 'expense', owner: 'household', categoryId: 'cat_other',
-      start: null, end: null, growth: null, active: true, note: ''
+      start: null, end: null, dueMonth: null, growth: null, active: true, note: ''
     };
 
     var labelIn = ui.textInput(draft.label, { placeholder: 'z. B. Miete' });
@@ -301,15 +308,50 @@ HB.views = HB.views || {};
     });
     paintCat();
 
+    /* --- Fälligkeit: nur sinnvoll bei Intervallen gröber als monatlich --- */
+
+    var MONTHS = ['Jänner', 'Februar', 'März', 'April', 'Mai', 'Juni',
+      'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+    var dueWrap = U.el('div', {});
+    var dueValue = draft.dueMonth;
+
+    function paintDue() {
+      U.clear(dueWrap);
+      var span = Math.round(C.intervalMonths(intervalSel.value));
+      if (span <= 1) { dueValue = null; return; }
+
+      var opts = [{ value: '', label: 'Gleichmäßig verteilt' }].concat(
+        MONTHS.map(function (name, i) { return { value: String(i + 1), label: name }; })
+      );
+      dueWrap.appendChild(ui.field('Fällig im Monat',
+        ui.select(opts, dueValue == null ? '' : String(dueValue), function (v) {
+          dueValue = v === '' ? null : parseInt(v, 10);
+          paintPreview();
+        }),
+        span === 12
+          ? 'Bestimmt, wann der Betrag in der Liquiditätsvorschau tatsächlich abgeht.'
+          : 'Ab diesem Monat alle ' + span + ' Monate. Ohne Angabe wird gleichmäßig verteilt.',
+        'full'));
+    }
+
     var preview = U.el('div', { class: 'callout' });
     function paintPreview() {
       var amt = U.parseNum(amountIn.value);
       var per = (C.INTERVALS[intervalSel.value] || C.INTERVALS.monthly).perMonth;
-      preview.textContent = 'Entspricht ' + U.currency(amt * per, { digits: 2 }) + ' pro Monat und ' +
+      var span = Math.round(C.intervalMonths(intervalSel.value));
+      var txt = 'Entspricht ' + U.currency(amt * per, { digits: 2 }) + ' pro Monat und ' +
         U.currency(amt * per * 12, { digits: 0 }) + ' pro Jahr.';
+      if (span > 1) {
+        txt += dueValue == null
+          ? ' In der Liquiditätsvorschau gleichmäßig verteilt — für den echten Kontoverlauf einen Fälligkeitsmonat wählen.'
+          : ' Kassenwirksam ' + U.currency(amt, { digits: 0 }) + ' im ' + MONTHS[dueValue - 1] +
+            (span < 12 ? ' und dann alle ' + span + ' Monate' : '') + '.';
+      }
+      preview.textContent = txt;
     }
     amountIn.addEventListener('input', paintPreview);
-    intervalSel.addEventListener('change', paintPreview);
+    intervalSel.addEventListener('change', function () { paintDue(); paintPreview(); });
+    paintDue();
     paintPreview();
 
     /* --- Progression --- */
@@ -412,7 +454,8 @@ HB.views = HB.views || {};
           ui.field('Läuft ab (optional)', startIn, 'Leer = seit jeher'),
           ui.field('Läuft bis (optional)', endIn, 'Leer = unbefristet'),
           ui.field('Notiz', noteIn, null, 'full'),
-          ui.field('', U.el('label', { class: 'checkline' }, [activeIn, U.el('span', { text: 'Posten ist aktiv' })]), null, 'full')
+          ui.field('', U.el('label', { class: 'checkline' }, [activeIn, U.el('span', { text: 'Posten ist aktiv' })]), null, 'full'),
+          dueWrap
         ]),
         preview,
         growthTitle,
@@ -438,6 +481,7 @@ HB.views = HB.views || {};
             draft.owner = ownerSel.value;
             draft.start = startIn.value || null;
             draft.end = endIn.value || null;
+            draft.dueMonth = Math.round(C.intervalMonths(intervalSel.value)) > 1 ? dueValue : null;
             draft.growth = currentGrowth();
             if (rhythm && !draft.growth) {
               ui.toast('Für die Progression fehlen Steigerung, Abstand oder erster Monat.', 'err');
@@ -506,43 +550,55 @@ HB.views = HB.views || {};
 
   /* --- Kategorien --------------------------------------------------------- */
 
+  /**
+   * Vollwertige Kategorienverwaltung. Auch die mitgelieferten Kategorien sind
+   * änder- und löschbar — sie sind Vorschläge, kein Gesetz. Zwei Leitplanken
+   * bleiben: Die letzte Kategorie einer Art lässt sich nicht löschen, und
+   * Einträge einer gelöschten Kategorie müssen umgebucht werden, statt still
+   * irgendwo zu landen.
+   */
   function manageCategories() {
-    var state = S.state;
     var body = U.el('div', {});
+    var editing = null;   // null = Liste, sonst die bearbeitete Kategorie
 
-    function paint() {
-      U.clear(body);
-
-      var nameIn = ui.textInput('', { placeholder: 'Neue Kategorie' });
-      var kindSel = ui.select([
-        { value: 'expense', label: 'Ausgabe' },
-        { value: 'income', label: 'Einnahme' }
-      ], 'expense');
-      var savingIn = U.el('input', { type: 'checkbox' });
-
-      body.appendChild(U.el('div', { class: 'form-grid' }, [
-        ui.field('Bezeichnung', nameIn),
-        ui.field('Art', kindSel),
-        ui.field('', U.el('label', { class: 'checkline' }, [savingIn, U.el('span', { text: 'zählt als Sparen' })])),
-        ui.field('', U.el('button', {
-          class: 'btn btn-primary', text: 'Hinzufügen',
-          onclick: function () {
-            var n = nameIn.value.trim();
-            if (!n) { nameIn.focus(); return; }
-            S.update(function (st) {
-              st.categories.push({
-                id: U.uid('cat'), name: n, kind: kindSel.value,
-                system: false, saving: savingIn.checked
-              });
-            }, 'categories');
-            paint();
-          }
-        }))
-      ]));
-
+    function usage(state) {
       var used = {};
       state.items.forEach(function (i) { used[i.categoryId] = (used[i.categoryId] || 0) + 1; });
       state.transactions.forEach(function (t) { used[t.categoryId] = (used[t.categoryId] || 0) + 1; });
+      state.plans.forEach(function (p) {
+        (p.adjustments || []).forEach(function (a) {
+          if (a.scope === 'category') used[a.targetId] = (used[a.targetId] || 0) + 1;
+        });
+      });
+      return used;
+    }
+
+    function countOfKind(state, kind) {
+      return state.categories.filter(function (c) { return c.kind === kind; }).length;
+    }
+
+    function paint() {
+      var state = S.state;
+      U.clear(body);
+      if (editing) paintForm(state);
+      else paintList(state);
+    }
+
+    /* --- Liste --- */
+
+    function paintList(state) {
+      var used = usage(state);
+
+      body.appendChild(U.el('div', { class: 'inline-actions', style: { marginBottom: '14px' } }, [
+        U.el('button', {
+          class: 'btn btn-primary', text: 'Kategorie hinzufügen',
+          onclick: function () {
+            editing = { id: null, name: '', kind: 'expense', saving: false };
+            paint();
+          }
+        }),
+        U.el('span', { class: 'small muted', text: state.categories.length + ' Kategorien' })
+      ]));
 
       body.appendChild(U.el('div', { class: 'table-wrap' }, [
         U.el('table', { class: 'tbl' }, [
@@ -553,28 +609,149 @@ HB.views = HB.views || {};
             U.el('th', { class: 'num', text: '' })
           ])),
           U.el('tbody', {}, state.categories.map(function (c) {
+            var last = countOfKind(state, c.kind) <= 1;
             return U.el('tr', {}, [
               U.el('td', {}, [
                 U.el('span', { text: c.name }),
-                c.saving ? U.el('span', { class: 'badge pos', style: { marginLeft: '6px' }, text: 'Sparen' }) : null
+                c.saving ? U.el('span', { class: 'badge pos', style: { marginLeft: '6px' }, text: 'Sparen' }) : null,
+                c.system ? U.el('span', { class: 'badge', style: { marginLeft: '6px' }, text: 'mitgeliefert' }) : null
               ]),
               U.el('td', { text: c.kind === 'income' ? 'Einnahme' : 'Ausgabe' }),
               U.el('td', { class: 'num', text: String(used[c.id] || 0) }),
               U.el('td', {}, U.el('div', { class: 'row-actions' }, [
-                c.system || used[c.id]
-                  ? U.el('span', { class: 'small muted', text: c.system ? 'Standard' : 'in Verwendung' })
-                  : ui.iconBtn('trash', 'Löschen', function () {
-                      S.update(function (st) {
-                        st.categories = st.categories.filter(function (x) { return x.id !== c.id; });
-                      }, 'categories');
-                      paint();
+                ui.iconBtn('edit', 'Bearbeiten', function () {
+                  editing = U.deepClone(c);
+                  paint();
+                }),
+                last
+                  ? U.el('span', {
+                      class: 'small muted', title: 'Die letzte Kategorie dieser Art bleibt erhalten',
+                      text: 'letzte'
                     })
+                  : ui.iconBtn('trash', 'Löschen', function () { askDelete(c, used[c.id] || 0); })
               ]))
             ]);
           }))
         ])
       ]));
+
+      body.appendChild(U.el('div', { class: 'callout', style: { marginTop: '14px' } }, [
+        'Auch die mitgelieferten Kategorien lassen sich umbenennen und löschen. ' +
+        'Beim Löschen werden alle Einträge auf eine andere Kategorie umgebucht — es geht nichts verloren.'
+      ]));
     }
+
+    /* --- Formular --- */
+
+    function paintForm(state) {
+      var isNew = !editing.id;
+      var used = usage(state);
+      var inUse = editing.id ? (used[editing.id] || 0) : 0;
+
+      var nameIn = ui.textInput(editing.name, { placeholder: 'z. B. Haustiere' });
+      var kindSel = ui.select([
+        { value: 'expense', label: 'Ausgabe' },
+        { value: 'income', label: 'Einnahme' }
+      ], editing.kind, null, inUse ? { disabled: true } : null);
+      var savingIn = U.el('input', { type: 'checkbox', checked: !!editing.saving });
+
+      body.appendChild(U.el('h3', { text: isNew ? 'Neue Kategorie' : 'Kategorie bearbeiten' }));
+      body.appendChild(U.el('div', { class: 'form-grid', style: { marginTop: '12px' } }, [
+        ui.field('Bezeichnung', nameIn, null, 'full'),
+        ui.field('Art', kindSel, inUse
+          ? 'Nicht änderbar, solange ' + inUse + ' Einträge darauf zeigen — sie stünden sonst in der falschen Auswertung.'
+          : 'Bestimmt, ob die Kategorie bei Einnahmen oder Ausgaben erscheint.'),
+        ui.field('Verwendung',
+          U.el('label', { class: 'checkline' }, [savingIn, U.el('span', { text: 'zählt als Vermögensaufbau' })]),
+          'Solche Ausgaben gehen in die Sparquote ein statt in den Konsum.')
+      ]));
+
+      body.appendChild(U.el('div', { class: 'inline-actions', style: { marginTop: '8px' } }, [
+        U.el('button', {
+          class: 'btn btn-primary', text: isNew ? 'Anlegen' : 'Speichern',
+          onclick: function () {
+            var name = nameIn.value.trim();
+            if (!name) { nameIn.focus(); ui.toast('Bitte eine Bezeichnung eingeben.', 'err'); return; }
+            var id = editing.id;
+            var kind = kindSel.value;
+            var saving = savingIn.checked;
+
+            S.update(function (st) {
+              if (id) {
+                var c = U.byId(st.categories, id);
+                if (c) { c.name = name; c.kind = kind; c.saving = saving; }
+              } else {
+                st.categories.push({
+                  id: U.uid('cat'), name: name, kind: kind, system: false, saving: saving
+                });
+              }
+            }, 'categories');
+
+            editing = null;
+            paint();
+            ui.toast(isNew ? 'Kategorie angelegt.' : 'Kategorie gespeichert.');
+          }
+        }),
+        U.el('button', {
+          class: 'btn', text: 'Zurück zur Liste',
+          onclick: function () { editing = null; paint(); }
+        })
+      ]));
+    }
+
+    /* --- Löschen mit Umbuchung --- */
+
+    function askDelete(cat, count) {
+      var state = S.state;
+      var targets = state.categories.filter(function (c) {
+        return c.id !== cat.id && c.kind === cat.kind;
+      });
+
+      var targetSel = ui.select(
+        targets.map(function (c) { return { value: c.id, label: c.name }; }),
+        targets[0] ? targets[0].id : ''
+      );
+
+      // Erst die Liste frisch aufbauen, damit sich Panels nicht stapeln.
+      paint();
+      var panel = U.el('div', { class: 'callout warn', style: { marginTop: '14px' } }, [
+        U.el('div', { style: { fontWeight: '600', marginBottom: '6px' }, text: '„' + cat.name + '" löschen' }),
+        count
+          ? U.el('div', {}, [
+              U.el('p', { text: count + ' Einträge zeigen auf diese Kategorie. Sie werden umgebucht auf:' }),
+              targetSel
+            ])
+          : U.el('p', { text: 'Auf diese Kategorie zeigt kein Eintrag.' }),
+        U.el('div', { class: 'inline-actions', style: { marginTop: '10px' } }, [
+          U.el('button', {
+            class: 'btn btn-danger', text: 'Endgültig löschen',
+            onclick: function () {
+              var to = count ? targetSel.value : null;
+              S.update(function (st) {
+                if (to) {
+                  st.items.forEach(function (i) { if (i.categoryId === cat.id) i.categoryId = to; });
+                  st.transactions.forEach(function (t) { if (t.categoryId === cat.id) t.categoryId = to; });
+                  st.plans.forEach(function (p) {
+                    (p.adjustments || []).forEach(function (a) {
+                      if (a.scope === 'category' && a.targetId === cat.id) a.targetId = to;
+                    });
+                  });
+                }
+                st.categories = st.categories.filter(function (c) { return c.id !== cat.id; });
+              }, 'categories');
+              paint();
+              ui.toast(count
+                ? 'Kategorie gelöscht, ' + count + ' Einträge umgebucht.'
+                : 'Kategorie gelöscht.');
+            }
+          }),
+          U.el('button', { class: 'btn', text: 'Abbrechen', onclick: function () { paint(); } })
+        ])
+      ]);
+      body.appendChild(panel);
+      panel.scrollIntoView({ block: 'nearest' });
+    }
+
     paint();
 
     ui.openModal({
@@ -583,5 +760,5 @@ HB.views = HB.views || {};
     });
   }
 
-  HB.views.items = { render: render };
+  HB.views.items = { render: render, manageCategories: manageCategories };
 })(window.HB);

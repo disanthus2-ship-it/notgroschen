@@ -55,6 +55,9 @@ HB.views = HB.views || {};
     root.appendChild(outlookStats(base, scen));
     root.appendChild(assetsChart(base, scen));
 
+    root.appendChild(U.el('div', { class: 'section-title', text: 'Liquidität' }));
+    root.appendChild(liquiditySection(state, plans));
+
     root.appendChild(U.el('div', { class: 'grid grid-2', style: { marginTop: '16px' } }, [
       netChart(scen || base, !!scen),
       yearTable(scen || base)
@@ -120,14 +123,19 @@ HB.views = HB.views || {};
 
     var grid = U.el('div', { class: 'grid grid-4' });
 
+    var hasDebt = C.totalDebt(S.state) > 0;
     grid.appendChild(ui.stat({
-      label: 'Vermögen am Ende des Zeitraums',
-      value: U.currency(end.assets, { digits: 0 }),
+      label: hasDebt ? 'Nettovermögen am Ende des Zeitraums' : 'Vermögen am Ende des Zeitraums',
+      value: U.currency(hasDebt ? end.netWorth : end.assets, { digits: 0 }),
       hero: true,
-      tone: ui.toneClass(end.assets),
+      tone: ui.toneClass(hasDebt ? end.netWorth : end.assets),
       sub: scen
-        ? deltaSub(end.assets - base[base.length - 1].assets)
-        : U.monthLabel(end.key, 'long')
+        ? deltaSub((hasDebt ? end.netWorth : end.assets) -
+            (hasDebt ? base[base.length - 1].netWorth : base[base.length - 1].assets))
+        : (hasDebt
+            ? U.currency(end.assets, { digits: 0 }) + ' Vermögen − ' +
+              U.currency(end.debt, { digits: 0 }) + ' Restschuld'
+            : U.monthLabel(end.key, 'long'))
     }));
 
     grid.appendChild(ui.stat({
@@ -209,6 +217,132 @@ HB.views = HB.views || {};
     return n === 1
       ? ' Die Progression eines Postens ist eingerechnet.'
       : ' Die Progression von ' + n + ' Posten ist eingerechnet.';
+  }
+
+  /* --- Liquiditätsvorschau ------------------------------------------------ */
+
+  /**
+   * Der ungeglättete Kontoverlauf. Die Projektion oben verteilt Jahresposten
+   * über zwölf Monate; hier treffen sie in ihrem Fälligkeitsmonat mit vollem
+   * Betrag ein. Erst dadurch wird sichtbar, ob ein teurer Monat das Konto trägt.
+   */
+  function liquiditySection(state, plans) {
+    var months = Math.min(view.months, 36);
+    var rows = C.liquidityProjection(state, {
+      from: view.from, months: months, plans: plans
+    });
+
+    var start = C.liquidAssets(state);
+
+    // Der Kurve einen Startpunkt voranstellen: Der Wert eines Monats ist der
+    // Stand an dessen Ende, der heutige Stand gehört also davor.
+    var points = [{ key: U.addMonths(view.from, -1), balance: start, isStart: true }]
+      .concat(rows);
+
+    var low = points.reduce(function (a, r) { return r.balance < a.balance ? r : a; }, points[0]);
+    var negative = rows.filter(function (r) { return r.balance < 0; });
+
+    var labels = points.map(function (r) { return r.isStart ? 'heute' : U.monthLabel(r.key, 'tiny'); });
+    var series = [{
+      name: 'Kontostand', color: U.token('--series-1'),
+      values: points.map(function (r) { return r.balance; }), area: true
+    }];
+
+    var withoutDue = state.items.filter(function (it) {
+      return it.active !== false && it.dueMonth == null &&
+        Math.round(C.intervalMonths(it.interval)) > 1;
+    });
+
+    var stats = U.el('div', { class: 'grid grid-3', style: { marginBottom: '16px' } }, [
+      ui.stat({
+        label: 'Liquide Mittel heute',
+        value: U.currency(start, { digits: 0 }),
+        sub: 'Girokonto, Bargeld und als Reserve markierte Anlagen'
+      }),
+      ui.stat({
+        label: 'Tiefster Kontostand',
+        value: U.currency(low.balance, { digits: 0 }),
+        tone: low.balance < 0 ? 'num-neg' : low.balance < start * 0.25 ? '' : 'num-pos',
+        sub: low.isStart ? 'heute — der Verlauf steigt durchgehend' : U.monthLabel(low.key, 'long')
+      }),
+      ui.stat({
+        label: 'Monate im Minus',
+        value: String(negative.length),
+        tone: negative.length ? 'num-neg' : 'num-pos',
+        sub: negative.length
+          ? 'erstmals ' + U.monthLabel(negative[0].key, 'long')
+          : 'Das Konto trägt den gesamten Zeitraum'
+      })
+    ]);
+
+    var card = ui.chartCard({
+      title: 'Kontoverlauf',
+      sub: 'Ungeglättet — Jahres- und Quartalszahlungen treffen in ihrem Fälligkeitsmonat ein',
+      chart: function () {
+        return HB.charts.line({
+          labels: labels, series: series, height: 300, width: 1120,
+          valueFormat: function (v) { return U.currency(v, { digits: 0 }); },
+          tooltipTitle: function (i) {
+            return points[i].isStart ? 'Heutiger Stand' : U.monthLabel(points[i].key, 'long');
+          },
+          ariaLabel: 'Verlauf der liquiden Mittel'
+        });
+      },
+      table: function () {
+        return HB.charts.seriesTable(
+          rows.map(function (r) { return U.monthLabel(r.key); }),
+          [
+            { name: 'Eingänge', values: rows.map(function (r) { return r.inflow; }) },
+            { name: 'Ausgänge', values: rows.map(function (r) { return r.outflow; }) },
+            { name: 'Kontostand', values: rows.map(function (r) { return r.balance; }) }
+          ],
+          function (v) { return U.currency(v, { digits: 0 }); }
+        );
+      },
+      foot: withoutDue.length
+        ? withoutDue.length + ' Posten ohne Fälligkeitsmonat werden weiterhin gleichmäßig verteilt — ' +
+          'trage die Fälligkeit ein, um den echten Verlauf zu sehen (' +
+          withoutDue.slice(0, 3).map(function (i) { return i.label; }).join(', ') +
+          (withoutDue.length > 3 ? ' …' : '') + ').'
+        : 'Alle nicht-monatlichen Posten haben einen Fälligkeitsmonat — der Verlauf ist vollständig.'
+    });
+
+    return U.el('div', {}, [stats, card, spikeTable(rows)]);
+  }
+
+  /** Die Monate mit den größten Einzelzahlungen. */
+  function spikeTable(rows) {
+    var withSpikes = rows.filter(function (r) { return r.spikes.length; }).slice(0, 12);
+    if (!withSpikes.length) return null;
+
+    return ui.card({
+      class: 'span-2',
+      title: 'Größere Einzelzahlungen',
+      sub: 'Was in welchem Monat zusätzlich zum Alltag anfällt',
+      raw: U.el('div', { class: 'table-wrap', style: { marginTop: '0' } }, [
+        U.el('table', { class: 'tbl' }, [
+          U.el('thead', {}, U.el('tr', {}, [
+            U.el('th', { text: 'Monat' }),
+            U.el('th', { text: 'Zahlungen' }),
+            U.el('th', { class: 'num', text: 'Saldo des Monats' }),
+            U.el('th', { class: 'num', text: 'Kontostand danach' })
+          ])),
+          U.el('tbody', {}, withSpikes.map(function (r) {
+            return U.el('tr', {}, [
+              U.el('td', { class: 'nowrap', text: U.monthLabel(r.key, 'long') }),
+              U.el('td', {}, U.el('div', { class: 'chips' }, r.spikes.slice(0, 4).map(function (sp) {
+                return U.el('span', {
+                  class: 'badge ' + (sp.kind === 'income' ? 'pos' : ''),
+                  text: sp.label + ' ' + U.currency(sp.amount, { digits: 0 })
+                });
+              }))),
+              U.el('td', { class: 'num ' + ui.toneClass(r.net), text: U.currency(r.net, { digits: 0, sign: true }) }),
+              U.el('td', { class: 'num ' + (r.balance < 0 ? 'num-neg' : ''), text: U.currency(r.balance, { digits: 0 }) })
+            ]);
+          }))
+        ])
+      ])
+    });
   }
 
   function netChart(rows, hasScenario) {
