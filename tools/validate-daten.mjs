@@ -14,6 +14,19 @@ import { readFileSync } from 'node:fs';
 
 /* --- Vertrag der App (Spiegel von js/store.js und js/calc.js) ------------- */
 
+const RE_MONTH_G = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** Wachstumsfaktor eines Postens im angegebenen Monat (Spiegel von calc.js). */
+function growthFactor(g, key) {
+  if (!g || !g.pct || !g.everyMonths || !RE_MONTH_G.test(String(g.from || ''))) return 1;
+  const every = Math.max(1, Math.round(g.everyMonths));
+  const first = monthIndex(g.from);
+  let at = monthIndex(key);
+  if (g.until && RE_MONTH_G.test(String(g.until))) at = Math.min(at, monthIndex(g.until));
+  if (at < first) return 1;
+  return Math.pow(1 + g.pct / 100, Math.floor((at - first) / every) + 1);
+}
+
 const INTERVALS = {
   weekly: 52 / 12,
   biweekly: 26 / 12,
@@ -240,8 +253,43 @@ function checkItems(data, personIds, cats) {
     if (it.active != null && typeof it.active !== 'boolean') {
       warn(at, '"active" sollte true oder false sein; alles außer false gilt der App als aktiv.');
     }
+    checkGrowth(at, it.growth);
   });
   return ids;
+}
+
+/**
+ * Progression eines Postens. Die App übernimmt beim Import nur einen
+ * vollständigen Satz — ein unvollständiger geht ersatzlos verloren, deshalb
+ * sind das hier Fehler und keine Warnungen.
+ */
+function checkGrowth(at, g) {
+  if (g == null) return;
+  if (!isObj(g)) {
+    err(at, '"growth" muss null oder ein Objekt sein.');
+    return;
+  }
+  if (!isNum(g.pct) || g.pct === 0) {
+    err(at, `"growth.pct" muss eine Zahl ungleich 0 sein, ist ${JSON.stringify(g.pct)}. Die App verwirft die Progression sonst beim Import.`);
+  } else if (g.pct <= -100) {
+    err(at, `"growth.pct" ${g.pct} % senkt den Betrag je Schritt auf 0 oder darunter.`);
+  } else if (Math.abs(g.pct) > 25) {
+    warn(at, `"growth.pct" ${g.pct} % je Schritt ist ungewöhnlich hoch — die Steigerungen wirken zinseszinsartig.`);
+  }
+
+  if (!Number.isInteger(g.everyMonths) || g.everyMonths < 1) {
+    err(at, `"growth.everyMonths" muss eine ganze Zahl ≥ 1 sein, ist ${JSON.stringify(g.everyMonths)}.`);
+  }
+  if (!RE_MONTH.test(String(g.from || ''))) {
+    err(at, `"growth.from" ${JSON.stringify(g.from)} ist kein Monat im Format JJJJ-MM. Ohne gültigen Startmonat verwirft die App die Progression.`);
+  }
+  if (g.until != null) {
+    if (!RE_MONTH.test(String(g.until))) {
+      err(at, `"growth.until" ${JSON.stringify(g.until)} ist kein Monat im Format JJJJ-MM.`);
+    } else if (RE_MONTH.test(String(g.from || '')) && monthIndex(g.until) < monthIndex(g.from)) {
+      err(at, `"growth.until" (${g.until}) liegt vor "growth.from" (${g.from}) — es käme nie eine Steigerung zustande.`);
+    }
+  }
 }
 
 function checkTransactions(data, personIds, cats) {
@@ -413,7 +461,7 @@ function summarise(data, month) {
     const factor = INTERVALS[it.interval];
     if (factor == null) continue;
     activeItems++;
-    add(it.owner, it.kind, it.categoryId, it.amount * factor);
+    add(it.owner, it.kind, it.categoryId, it.amount * factor * growthFactor(it.growth, month));
   }
 
   let monthTx = 0;
@@ -445,7 +493,10 @@ function summarise(data, month) {
     .slice(0, 5)
     .map(([id, v]) => [cats.get(id)?.name || id, v]);
 
+  const withGrowth = (data.items || []).filter((it) => isObj(it) && it.growth).length;
+
   return {
+    withGrowth,
     month, income, expense, net: income - expense, saving,
     savingsRate: income > 0 ? (income - expense + saving) / income : 0,
     activeItems, monthTx, byOwner, names, topCats,
@@ -497,6 +548,7 @@ function report(file, data, sum, asJson) {
   console.log(`  Personen              ${(data.people || []).length}`);
   console.log(`  Kategorien            ${(data.categories || []).length}`);
   console.log(`  Wiederkehrende Posten ${(data.items || []).length}  (${sum.activeItems} wirksam in ${sum.month})`);
+  if (sum.withGrowth) console.log(`  davon mit Progression ${String(sum.withGrowth).padStart(2)}`);
   console.log(`  Einzelbuchungen       ${(data.transactions || []).length}  (${sum.monthTx} in ${sum.month})`);
   console.log(`  Investments           ${(data.investments || []).length}`);
   console.log(`  Szenarien             ${(data.plans || []).length}`);

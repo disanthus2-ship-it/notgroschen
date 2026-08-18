@@ -92,25 +92,30 @@ window.HB = window.HB || {};
     var r = { id: 'per_robin', name: 'Robin', colorIndex: 1, budget: 400, sharePct: null, note: '' };
     s.people = [a, r];
 
+    // Erste Steigerung im kommenden Jänner — so laufen KV-Erhöhungen üblicherweise.
+    var nextJan = (parseInt(m.slice(0, 4), 10) + 1) + '-01';
+
     function item(o) {
       return {
         id: U.uid('itm'), label: o.l, amount: o.a, interval: o.i || 'monthly',
         kind: o.k, owner: o.o, categoryId: o.c,
-        start: null, end: null, active: true, note: ''
+        start: null, end: null,
+        growth: o.g ? { pct: o.g, everyMonths: o.ge || 12, from: nextJan, until: null } : null,
+        active: true, note: ''
       };
     }
 
     s.items = [
       // Einnahmen
-      item({ l: 'Gehalt (netto)',        a: 2900, k: 'income', o: a.id, c: 'cat_salary' }),
-      item({ l: '13./14. Gehalt',        a: 5800, i: 'yearly', k: 'income', o: a.id, c: 'cat_bonus' }),
-      item({ l: 'Gehalt (netto)',        a: 2250, k: 'income', o: r.id, c: 'cat_salary' }),
-      item({ l: '13./14. Gehalt',        a: 4500, i: 'yearly', k: 'income', o: r.id, c: 'cat_bonus' }),
+      item({ l: 'Gehalt (netto)',        a: 2900, k: 'income', o: a.id, c: 'cat_salary', g: 3 }),
+      item({ l: '13./14. Gehalt',        a: 5800, i: 'yearly', k: 'income', o: a.id, c: 'cat_bonus', g: 3 }),
+      item({ l: 'Gehalt (netto)',        a: 2250, k: 'income', o: r.id, c: 'cat_salary', g: 2.5 }),
+      item({ l: '13./14. Gehalt',        a: 4500, i: 'yearly', k: 'income', o: r.id, c: 'cat_bonus', g: 2.5 }),
       item({ l: 'Nebentätigkeit',        a: 280,  k: 'income', o: r.id, c: 'cat_sidejob' }),
       item({ l: 'Familienbeihilfe',      a: 141.5, k: 'income', o: 'household', c: 'cat_transfer' }),
 
       // Haushaltsausgaben
-      item({ l: 'Miete',                 a: 1290, k: 'expense', o: 'household', c: 'cat_housing' }),
+      item({ l: 'Miete',                 a: 1290, k: 'expense', o: 'household', c: 'cat_housing', g: 2.8 }),
       item({ l: 'Betriebskosten',        a: 185,  k: 'expense', o: 'household', c: 'cat_housing' }),
       item({ l: 'Strom & Gas',           a: 138,  k: 'expense', o: 'household', c: 'cat_utilities' }),
       item({ l: 'Internet & Mobilfunk',  a: 68,   k: 'expense', o: 'household', c: 'cat_comms' }),
@@ -226,6 +231,26 @@ window.HB = window.HB || {};
     return s;
   }
 
+  /**
+   * Progression eines Postens. Nur ein vollständig brauchbarer Satz wird
+   * übernommen — eine halbe Angabe (etwa ohne Startmonat) würde in der
+   * Oberfläche als aktiv erscheinen, ohne je zu wirken.
+   */
+  function normalizeGrowth(g) {
+    if (!g || typeof g !== 'object') return null;
+    var pct = Number(g.pct);
+    var every = Math.round(Number(g.everyMonths));
+    if (!isFinite(pct) || pct === 0) return null;
+    if (!isFinite(every) || every < 1) return null;
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(g.from || ''))) return null;
+    return {
+      pct: pct,
+      everyMonths: every,
+      from: g.from,
+      until: /^\d{4}-(0[1-9]|1[0-2])$/.test(String(g.until || '')) ? g.until : null
+    };
+  }
+
   /* --- Migration / Validierung -------------------------------------------- */
 
   function migrate(raw) {
@@ -285,6 +310,7 @@ window.HB = window.HB || {};
         categoryId: fixCat(it.categoryId, kind),
         start: it.start || null,
         end: it.end || null,
+        growth: normalizeGrowth(it.growth),
         active: it.active !== false,
         note: String(it.note || '')
       };

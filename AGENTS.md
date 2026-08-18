@@ -165,6 +165,7 @@ Eine eigene Kategorie bekommt eine neue `id` (Konvention: `cat_<begriff>`) und
   "categoryId": "cat_housing",
   "start": null,           // "JJJJ-MM" oder null (= seit jeher)
   "end": null,             // "JJJJ-MM" oder null (= unbefristet)
+  "growth": null,          // Progression, siehe unten — oder null
   "active": true,
   "note": ""
 }
@@ -183,6 +184,39 @@ Umrechnung macht die App:
 | `quarterly` | × 1 ⁄ 3 | 300 € im Quartal → 100 €/Monat |
 | `semiannual` | × 1 ⁄ 6 | 600 € halbjährlich → 100 €/Monat |
 | `yearly` | × 1 ⁄ 12 | 1.200 € jährlich → 100 €/Monat |
+
+#### Progression (`growth`)
+
+Regelmäßige Steigerung eines Postens: Gehaltsprogression, indexierte Miete,
+valorisierte Prämie.
+
+```jsonc
+"growth": {
+  "pct": 3,              // Steigerung je Schritt in Prozent, ungleich 0
+  "everyMonths": 12,     // 12 = jährlich, 24 = alle 2 Jahre, frei wählbar (≥ 1)
+  "from": "2027-01",     // Monat der ERSTEN Steigerung, Pflichtfeld
+  "until": null          // letzte Steigerung, oder null für unbefristet
+}
+```
+
+Die Steigerungen wirken **zinseszinsartig** — jede setzt auf dem bereits
+gestiegenen Betrag auf:
+
+```
+Schritte(Monat) = 0                                        falls Monat < from
+                = floor((min(Monat, until) − from) / everyMonths) + 1   sonst
+Betrag(Monat)   = Monatsbetrag × (1 + pct/100) ^ Schritte
+```
+
+Nach `until` bleibt der zuletzt erreichte Stand stehen, er fällt nicht zurück.
+
+Zwei Dinge dazu:
+
+- **`amount` bleibt immer der Ausgangsbetrag.** Trage nie einen schon
+  hochgerechneten Wert ein — die App rechnet je Monat selbst.
+- **Ein unvollständiger Satz wird beim Import ersatzlos verworfen.** Fehlt
+  `from`, ist `pct` gleich 0 oder `everyMonths` kleiner als 1, verschwindet die
+  Progression stillschweigend. Entweder vollständig oder `null`.
 
 ### `transactions[]` — Einzelbuchungen
 
@@ -322,6 +356,7 @@ nicht darauf.
 | `owner` zeigt auf eine nicht existierende Person | wird zu `"household"` |
 | `categoryId` existiert nicht | wird zu `cat_salary` bzw. `cat_other` |
 | `interval` unbekannt | wird zu `"monthly"` — ein Jahresbetrag zählt dann zwölffach |
+| `growth` unvollständig oder ohne gültiges `from` | wird zu `null`, die Progression ist weg |
 | `investments[].type` unbekannt | wird zu `"sonstiges"` |
 | `linkedItemId` zeigt auf einen gelöschten Posten | wird auf `null` gesetzt |
 | `kind` ist etwas anderes als `"income"` | wird zu `"expense"` |
@@ -529,7 +564,8 @@ oder fehlendes `categories` füllt die App mit ihren Vorgaben.
 Damit du eine Änderung im Kopf nachvollziehen kannst:
 
 ```
-Monatsbetrag(Posten)  = amount × Faktor(interval)          nur wenn active
+Monatsbetrag(Posten)  = amount × Faktor(interval) × Progressionsfaktor(Monat)
+                                                           nur wenn active
                                                            und Monat in [start, end]
 Netto-Haushaltskosten = Haushaltsausgaben − Haushaltseinnahmen
 Anteil(Person)        = Netto-Haushaltskosten × Schlüssel(Person)

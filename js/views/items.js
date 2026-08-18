@@ -144,16 +144,18 @@ HB.views = HB.views || {};
     category: function (it) { return S.categoryName(it.categoryId); },
     interval: function (it) { return C.INTERVALS[it.interval].perMonth; },
     amount:   function (it) { return Number(it.amount) || 0; },
-    perMonth: function (it) { return C.perMonth(it); },
-    perYear:  function (it) { return C.perMonth(it) * 12; },
+    perMonth: function (it) { return C.perMonthAt(it, U.monthKey()); },
+    perYear:  function (it) { return C.perMonthAt(it, U.monthKey()) * 12; },
     range:    function (it) { return it.start ? U.monthIndex(it.start) : -Infinity; }
   };
 
   /* --- Kopfzahlen --------------------------------------------------------- */
 
   function summaryStrip(state, rows) {
-    var inc = U.sum(rows.filter(function (r) { return r.kind === 'income' && r.active !== false; }), C.perMonth);
-    var exp = U.sum(rows.filter(function (r) { return r.kind === 'expense' && r.active !== false; }), C.perMonth);
+    var now = U.monthKey();
+    var at = function (r) { return C.perMonthAt(r, now); };
+    var inc = U.sum(rows.filter(function (r) { return r.kind === 'income' && r.active !== false; }), at);
+    var exp = U.sum(rows.filter(function (r) { return r.kind === 'expense' && r.active !== false; }), at);
 
     return U.el('div', { class: 'grid grid-3', style: { marginBottom: '16px' } }, [
       ui.stat({ label: 'Einnahmen in der Auswahl', value: U.currency(inc, { digits: 0 }), sub: U.currency(inc * 12, { digits: 0 }) + ' pro Jahr' }),
@@ -172,8 +174,10 @@ HB.views = HB.views || {};
       return ui.card({ body: ui.emptyState('Kein Treffer', 'Kein Posten passt zu den aktuellen Filtern.') });
     }
 
+    var now = U.monthKey();
     var totalMonth = U.sum(rows, function (r) {
-      return (r.active === false ? 0 : 1) * (r.kind === 'income' ? C.perMonth(r) : -C.perMonth(r));
+      var v = C.perMonthAt(r, now);
+      return (r.active === false ? 0 : 1) * (r.kind === 'income' ? v : -v);
     });
 
     return ui.card({
@@ -211,14 +215,22 @@ HB.views = HB.views || {};
   }
 
   function itemRow(state, it) {
-    var m = C.perMonth(it);
+    var m = C.perMonthAt(it, U.monthKey());
     var paused = it.active === false;
 
     return U.el('tr', { class: paused ? 'row-muted' : '' }, [
       U.el('td', {}, [
         U.el('div', {}, [
           U.el('span', { style: { fontWeight: '500' }, text: it.label }),
-          paused ? U.el('span', { class: 'badge', text: 'pausiert', style: { marginLeft: '6px' } }) : null
+          paused ? U.el('span', { class: 'badge', text: 'pausiert', style: { marginLeft: '6px' } }) : null,
+          it.growth
+            ? U.el('span', {
+                class: 'badge info', style: { marginLeft: '6px' },
+                title: 'Erste Steigerung ' + U.monthLabel(it.growth.from) +
+                  (it.growth.until ? ', letzte ' + U.monthLabel(it.growth.until) : ''),
+                text: C.growthLabel(it.growth)
+              })
+            : null
         ]),
         it.note ? U.el('div', { class: 'small muted', text: it.note }) : null
       ]),
@@ -256,7 +268,7 @@ HB.views = HB.views || {};
     var draft = it ? U.deepClone(it) : {
       id: U.uid('itm'), label: '', amount: null, interval: 'monthly',
       kind: 'expense', owner: 'household', categoryId: 'cat_other',
-      start: null, end: null, active: true, note: ''
+      start: null, end: null, growth: null, active: true, note: ''
     };
 
     var labelIn = ui.textInput(draft.label, { placeholder: 'z. B. Miete' });
@@ -285,6 +297,7 @@ HB.views = HB.views || {};
       var first = ui.categoryOptions(state, v)[0];
       draft.categoryId = first ? first.value : draft.categoryId;
       paintCat();
+      paintGrowth();
     });
     paintCat();
 
@@ -298,6 +311,92 @@ HB.views = HB.views || {};
     amountIn.addEventListener('input', paintPreview);
     intervalSel.addEventListener('change', paintPreview);
     paintPreview();
+
+    /* --- Progression --- */
+
+    var g = draft.growth;
+    var growthTitle = U.el('div', { class: 'section-title' });
+    var growthWrap = U.el('div', {});
+    var growthPreview = U.el('div', { class: 'callout' });
+
+    var pctIn = ui.numInput(g ? g.pct : 3, { step: '0.1' });
+    var everyIn = ui.numInput(g ? g.everyMonths : 12, { step: '1', min: '1' });
+    var fromIn = ui.monthInput(g ? g.from : defaultGrowthStart());
+    var untilIn = ui.monthInput(g ? g.until : null);
+
+    // „Individuell“ nur dann vorwählen, wenn der Rhythmus keinem Preset entspricht.
+    var presetValues = C.GROWTH_PRESETS.map(function (x) { return String(x.value); });
+    var rhythm = !g ? '' :
+      (presetValues.indexOf(String(g.everyMonths)) > -1 ? String(g.everyMonths) : 'custom');
+
+    var rhythmSel = ui.select(
+      [{ value: '', label: 'Keine Progression' }]
+        .concat(C.GROWTH_PRESETS.map(function (x) {
+          return { value: String(x.value), label: x.label };
+        }))
+        .concat([{ value: 'custom', label: 'Individueller Zeitraum …' }]),
+      rhythm,
+      function (v) { rhythm = v; paintGrowth(); }
+    );
+
+    function paintGrowth() {
+      growthTitle.textContent = draft.kind === 'income' ? 'Gehaltsprogression' : 'Wertanpassung';
+      U.clear(growthWrap);
+
+      growthWrap.appendChild(ui.field('Rhythmus', rhythmSel,
+        draft.kind === 'income'
+          ? 'Regelmäßige Erhöhung, etwa aus dem Kollektivvertrag'
+          : 'Regelmäßige Anpassung, etwa eine indexierte Miete'));
+
+      if (!rhythm) {
+        growthPreview.textContent = 'Der Betrag bleibt über den gesamten Zeitraum unverändert.';
+        return;
+      }
+
+      var grid = U.el('div', { class: 'form-grid' }, [
+        ui.field('Steigerung je Schritt (%)', pctIn, 'Negative Werte senken den Betrag'),
+        rhythm === 'custom'
+          ? ui.field('Abstand (Monate)', everyIn, 'z. B. 18 für alle eineinhalb Jahre')
+          : U.el('div', {}),
+        ui.field('Erste Steigerung', fromIn, 'Monat, in dem sie zum ersten Mal greift'),
+        ui.field('Letzte Steigerung', untilIn, 'leer = unbefristet')
+      ]);
+      growthWrap.appendChild(grid);
+      paintGrowthPreview();
+    }
+
+    function currentGrowth() {
+      if (!rhythm) return null;
+      var pct = U.parseNum(pctIn.value);
+      var every = rhythm === 'custom' ? Math.round(U.parseNum(everyIn.value)) : parseInt(rhythm, 10);
+      if (!pct || !(every >= 1) || !fromIn.value) return null;
+      return { pct: pct, everyMonths: every, from: fromIn.value, until: untilIn.value || null };
+    }
+
+    /** Zeigt, wo der Betrag am Ende des eingestellten Planungszeitraums steht. */
+    function paintGrowthPreview() {
+      var gr = currentGrowth();
+      if (!gr) {
+        growthPreview.textContent = 'Bitte Steigerung, Abstand und ersten Monat angeben — sonst bleibt die Progression wirkungslos.';
+        return;
+      }
+      var base = U.parseNum(amountIn.value);
+      var months = state.settings.projectionMonths || 60;
+      var end = U.addMonths(state.settings.startMonth || U.monthKey(), months - 1);
+      var steps = C.growthSteps(gr, end);
+      var factor = C.growthFactor(gr, end);
+      growthPreview.textContent = C.growthLabel(gr) + ' ab ' + U.monthLabel(gr.from) + ': aus ' +
+        U.currency(base, { digits: 0 }) + ' werden bis ' + U.monthLabel(end, 'long') + ' rund ' +
+        U.currency(base * factor, { digits: 0 }) + ' (' + steps +
+        (steps === 1 ? ' Steigerung' : ' Steigerungen') + ').';
+    }
+
+    [pctIn, everyIn, fromIn, untilIn].forEach(function (el) {
+      el.addEventListener('input', paintGrowthPreview);
+      el.addEventListener('change', paintGrowthPreview);
+    });
+    amountIn.addEventListener('input', paintGrowthPreview);
+    paintGrowth();
 
     ui.openModal({
       title: isNew ? 'Posten hinzufügen' : 'Posten bearbeiten',
@@ -315,7 +414,10 @@ HB.views = HB.views || {};
           ui.field('Notiz', noteIn, null, 'full'),
           ui.field('', U.el('label', { class: 'checkline' }, [activeIn, U.el('span', { text: 'Posten ist aktiv' })]), null, 'full')
         ]),
-        preview
+        preview,
+        growthTitle,
+        growthWrap,
+        growthPreview
       ]),
       actions: [
         { label: 'Abbrechen', variant: 'btn-ghost' },
@@ -336,6 +438,11 @@ HB.views = HB.views || {};
             draft.owner = ownerSel.value;
             draft.start = startIn.value || null;
             draft.end = endIn.value || null;
+            draft.growth = currentGrowth();
+            if (rhythm && !draft.growth) {
+              ui.toast('Für die Progression fehlen Steigerung, Abstand oder erster Monat.', 'err');
+              return;
+            }
             draft.note = noteIn.value.trim();
             draft.active = activeIn.checked;
 
@@ -352,6 +459,12 @@ HB.views = HB.views || {};
         }
       ]
     });
+  }
+
+  /** Vorschlag für die erste Steigerung: der kommende Jänner. */
+  function defaultGrowthStart() {
+    var now = U.monthKey();
+    return (parseInt(now.slice(0, 4), 10) + 1) + '-01';
   }
 
   function duplicate(it) {

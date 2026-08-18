@@ -30,6 +30,55 @@ window.HB = window.HB || {};
 
   function perYear(item) { return perMonth(item) * 12; }
 
+  /* --- Progression -------------------------------------------------------- */
+
+  /**
+   * Wiederkehrende Steigerung eines Postens — Gehaltsprogression, indexierte
+   * Miete, valorisierte Versicherungsprämie. Das Feld `growth` sieht so aus:
+   *
+   *   { pct: 3, everyMonths: 12, from: "2027-01", until: null }
+   *
+   * `from` ist der Monat der **ersten** Steigerung. Danach greift alle
+   * `everyMonths` Monate eine weitere, jeweils auf den bereits gestiegenen
+   * Betrag — die Steigerungen wirken also zinseszinsartig, wie in der Realität.
+   */
+  var GROWTH_PRESETS = [
+    { value: 6,  label: 'halbjährlich' },
+    { value: 12, label: 'jährlich' },
+    { value: 24, label: 'alle 2 Jahre' },
+    { value: 36, label: 'alle 3 Jahre' }
+  ];
+
+  function growthLabel(g) {
+    if (!g) return '';
+    var preset = GROWTH_PRESETS.filter(function (x) { return x.value === g.everyMonths; })[0];
+    var rhythm = preset ? preset.label : 'alle ' + g.everyMonths + ' Monate';
+    return (g.pct >= 0 ? '+' : '−') + U.num(Math.abs(g.pct), 1) + ' % ' + rhythm;
+  }
+
+  /** Anzahl der bis zu diesem Monat wirksam gewordenen Steigerungen. */
+  function growthSteps(g, key) {
+    if (!g || !g.pct || !g.everyMonths || !g.from) return 0;
+    var every = Math.max(1, Math.round(g.everyMonths));
+    var first = U.monthIndex(g.from);
+    var at = U.monthIndex(key);
+    // Nach dem Ende der Progression bleibt der zuletzt erreichte Stand stehen.
+    if (g.until) at = Math.min(at, U.monthIndex(g.until));
+    if (at < first) return 0;
+    return Math.floor((at - first) / every) + 1;
+  }
+
+  function growthFactor(g, key) {
+    var steps = growthSteps(g, key);
+    if (!steps) return 1;
+    return Math.pow(1 + (Number(g.pct) || 0) / 100, steps);
+  }
+
+  /** Monatsbetrag eines Postens im angegebenen Monat, inklusive Progression. */
+  function perMonthAt(item, key) {
+    return perMonth(item) * growthFactor(item.growth, key);
+  }
+
   /* --- Anlagearten -------------------------------------------------------- */
 
   /**
@@ -70,7 +119,7 @@ window.HB = window.HB || {};
     state.items.forEach(function (it) {
       if (it.active === false) return;
       if (!U.inRange(key, it.start, it.end)) return;
-      var amt = perMonth(it);
+      var amt = perMonthAt(it, key);
       if (!amt) return;
       flows.push({
         id: it.id, itemId: it.id, label: it.label, kind: it.kind,
@@ -354,7 +403,7 @@ window.HB = window.HB || {};
         weightBase += v;
       }
       var it = inv.linkedItemId ? U.byId(state.items, inv.linkedItemId) : null;
-      if (it && it.active !== false) res.contributionMonthly += perMonth(it);
+      if (it && it.active !== false) res.contributionMonthly += perMonthAt(it, U.monthKey());
     });
 
     res.gain = res.costKnown - res.cost;
@@ -657,9 +706,14 @@ window.HB = window.HB || {};
   HB.calc = {
     INTERVALS: INTERVALS,
     INVESTMENT_TYPES: INVESTMENT_TYPES,
+    GROWTH_PRESETS: GROWTH_PRESETS,
     typeLabel: typeLabel,
     perMonth: perMonth,
+    perMonthAt: perMonthAt,
     perYear: perYear,
+    growthLabel: growthLabel,
+    growthSteps: growthSteps,
+    growthFactor: growthFactor,
     investmentSummary: investmentSummary,
     totalAssets: totalAssets,
     portfolioReturn: portfolioReturn,

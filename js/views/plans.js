@@ -197,8 +197,18 @@ HB.views = HB.views || {};
         );
       },
       foot: 'Der Bestand wird monatlich mit ' + U.num(view.returnPct, 1) +
-            ' % p. a. verzinst; Saldo und Sparbeiträge fließen zusätzlich zu.'
+            ' % p. a. verzinst; Saldo und Sparbeiträge fließen zusätzlich zu.' +
+            growthNote(S.state)
     });
+  }
+
+  /** Weist darauf hin, dass die Projektion Progressionen bereits enthält. */
+  function growthNote(state) {
+    var n = state.items.filter(function (it) { return it.growth && it.active !== false; }).length;
+    if (!n) return '';
+    return n === 1
+      ? ' Die Progression eines Postens ist eingerechnet.'
+      : ' Die Progression von ' + n + ' Posten ist eingerechnet.';
   }
 
   function netChart(rows, hasScenario) {

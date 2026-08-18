@@ -70,6 +70,11 @@ Monatssaldo des Haushalts.
   eines Monats gegenüber.
 * **Kategorien** sind frei erweiterbar. Kategorien mit dem Merkmal *Sparen* zählen
   in der Sparquote als Vermögensaufbau und nicht als Konsum.
+* **Progression** je Posten — jährlich, alle zwei Jahre oder in einem frei
+  gewählten Abstand, ab einem bestimmten Monat und optional befristet. Bei
+  Einnahmen ist das die Gehaltsprogression (etwa aus dem Kollektivvertrag), bei
+  Ausgaben die Wertanpassung (etwa eine indexierte Miete). Die Steigerungen
+  wirken zinseszinsartig und schlagen bis in Projektion und FIRE-Rechnung durch.
 
 In beiden Tabellen sortiert ein Klick auf die Spaltenüberschrift, ein zweiter
 dreht die Richtung. Auf der Übersicht führt ein Klick auf eine Kategoriezeile zu
@@ -233,7 +238,7 @@ Alles hängt am globalen Namespace `HB`. Die Reihenfolge der `<script>`-Tags in
 ## Rechenmodell in Kurzform
 
 ```
-Monatsbetrag(Posten)   = Betrag × Faktor(Intervall)
+Monatsbetrag(Posten)   = Betrag × Faktor(Intervall) × Progressionsfaktor
 Flüsse(Monat)          = aktive Posten im Zeitraum
                        + Einzelbuchungen des Monats (optional)
                        + Szenario-Anpassungen
