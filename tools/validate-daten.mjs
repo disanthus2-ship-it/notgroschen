@@ -42,6 +42,13 @@ const INVESTMENT_TYPES = [
   'versicherung', 'vorsorge', 'immobilie', 'edelmetall', 'krypto', 'sonstiges'
 ];
 
+// KESt-Vorgabe je Anlageart, deckungsgleich mit INVESTMENT_TYPES in js/calc.js.
+const INVESTMENT_TAX = {
+  etf: 27.5, aktien: 27.5, fonds: 27.5, anleihen: 27.5, fixzins: 25,
+  tagesgeld: 25, bausparer: 25, versicherung: 0, vorsorge: 0, immobilie: 0,
+  edelmetall: 0, krypto: 27.5, sonstiges: 27.5
+};
+
 const DEBT_TYPES = [
   'mortgage', 'consumer', 'car', 'education', 'creditcard', 'privateloan', 'other'
 ];
@@ -119,6 +126,23 @@ function checkSettings(data) {
   }
   if (s.startMonth != null && !RE_MONTH.test(s.startMonth)) {
     err('settings.startMonth', `${JSON.stringify(s.startMonth)} ist kein Monat im Format JJJJ-MM.`);
+  }
+
+  if (s.tax != null) {
+    if (!isObj(s.tax)) {
+      err('settings.tax', 'Muss ein Objekt sein.');
+    } else {
+      if (s.tax.enabled != null && typeof s.tax.enabled !== 'boolean') {
+        err('settings.tax.enabled', 'Muss true oder false sein.');
+      }
+      for (const k of ['ongoingSharePct', 'defaultRatePct']) {
+        if (s.tax[k] == null) continue;
+        if (!isNum(s.tax[k])) err(`settings.tax.${k}`, 'Muss eine Zahl sein.');
+        else if (s.tax[k] < 0 || s.tax[k] > 100) {
+          err(`settings.tax.${k}`, `${s.tax[k]} liegt außerhalb von 0–100. Die App würde den Wert kappen.`);
+        }
+      }
+    }
   }
 
   const h = isObj(data.household) ? data.household : {};
@@ -356,6 +380,15 @@ function checkInvestments(data, personIds, itemIds) {
     if (inv.expectedReturnPct != null && !isNum(inv.expectedReturnPct)) {
       err(at, '"expectedReturnPct" muss null oder eine Zahl sein.');
     }
+    if (inv.taxRatePct != null) {
+      if (!isNum(inv.taxRatePct)) {
+        err(at, '"taxRatePct" muss null oder eine Zahl sein. null bedeutet: KESt-Satz der Anlageart.');
+      } else if (inv.taxRatePct < 0 || inv.taxRatePct > 100) {
+        err(at, `"taxRatePct" ${inv.taxRatePct} liegt außerhalb von 0–100.`);
+      } else if (INVESTMENT_TAX[inv.type] != null && inv.taxRatePct === INVESTMENT_TAX[inv.type]) {
+        warn(at, `"taxRatePct" entspricht der Vorgabe der Anlageart (${INVESTMENT_TAX[inv.type]} %); null wäre sauberer.`);
+      }
+    }
     if (inv.liquid != null && typeof inv.liquid !== 'boolean') {
       err(at, '"liquid" muss null, true oder false sein.');
     }
@@ -558,6 +591,7 @@ function summarise(data, month) {
 
   // Portfolio: Bestand, Einstand und gewichtete Renditeerwartung
   let invTotal = 0, invCost = 0, invCostKnown = 0, weighted = 0, weightBase = 0;
+  let weightedTax = 0, taxBase = 0;
   for (const inv of data.investments || []) {
     if (!isObj(inv)) continue;
     const v = Number(inv.currentValue) || 0;
@@ -569,6 +603,13 @@ function summarise(data, month) {
     if (inv.expectedReturnPct != null && Number.isFinite(Number(inv.expectedReturnPct)) && v > 0) {
       weighted += v * Number(inv.expectedReturnPct);
       weightBase += v;
+    }
+    if (v > 0) {
+      const rate = inv.taxRatePct != null && Number.isFinite(Number(inv.taxRatePct))
+        ? Number(inv.taxRatePct)
+        : (INVESTMENT_TAX[inv.type] ?? INVESTMENT_TAX.sonstiges);
+      weightedTax += v * rate;
+      taxBase += v;
     }
   }
   const otherAssets = Number(data.household?.assets) || 0;
@@ -597,6 +638,8 @@ function summarise(data, month) {
     invTotal, invCost, invGain: invCostKnown - invCost,
     debtBalance, debtPayment, netWorth: otherAssets + invTotal - debtBalance,
     invReturn: weightBase > 0 ? weighted / weightBase : null,
+    invTax: taxBase > 0 ? weightedTax / taxBase : null,
+    taxEnabled: data.settings?.tax?.enabled !== false,
     otherAssets, totalAssets: otherAssets + invTotal
   };
 }
@@ -622,6 +665,7 @@ function report(file, data, sum, asJson) {
         investmentTotal: sum.invTotal, investmentGain: sum.invGain,
         debtBalance: sum.debtBalance, netWorth: sum.netWorth,
         portfolioReturnPct: sum.invReturn,
+        portfolioTaxPct: sum.invTax,
         counts: {
           people: (data.people || []).length,
           categories: (data.categories || []).length,
@@ -665,6 +709,10 @@ function report(file, data, sum, asJson) {
   }
   if (sum.invReturn != null) {
     console.log(`  Erwartete Rendite     ${(sum.invReturn.toFixed(2) + ' %').padStart(12)}`);
+  }
+  if (sum.invTax != null) {
+    const note = sum.taxEnabled ? '' : '  (abgeschaltet)';
+    console.log(`  KESt gewichtet        ${(sum.invTax.toFixed(2) + ' %').padStart(12)}${note}`);
   }
 
   console.log(`\nMonatsbilanz ${sum.month}`);

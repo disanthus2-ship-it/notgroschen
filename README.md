@@ -98,6 +98,9 @@ Zwei Kopplungen machen daraus mehr als eine Liste:
   FIRE-Rechnung.
 * **Die Portfoliorendite** wird in Projektion und FIRE als Vorgabe gesetzt und
   bleibt überschreibbar — für ein schnelles „was, wenn es nur 4 % werden“.
+* **Der KESt-Satz** ergibt sich aus der Anlageart (27,5 % auf Wertpapiere und
+  Krypto, 25 % auf Geldeinlagen, 0 % auf Vorsorge, Versicherung, Immobilien und
+  Edelmetalle) und lässt sich je Position überschreiben.
 
 Läuft zu einem Investment ein Sparplan, wird er mit dem passenden Posten
 **verknüpft** statt doppelt erfasst: Der Geldfluss bleibt im Budget, das
@@ -183,8 +186,8 @@ vergleichbar ist.
 
 ```
 Realrendite  = (1 + Rendite) ÷ (1 + Inflation) − 1
-FIRE-Zahl    = Jahresausgaben ÷ Entnahmerate
-Coast-Zahl   = FIRE-Zahl ÷ (1 + Realrendite)^Horizont
+FIRE-Zahl    = Jahresausgaben ÷ (Entnahmerate × (1 − KESt × Gewinnanteil))
+Coast-Zahl   = FIRE-Zahl ÷ (1 + Realrendite nach KESt)^Horizont
 ```
 
 Startvermögen und Rendite kommen wahlweise automatisch aus den Investments oder
@@ -196,6 +199,25 @@ Ausgabenniveau in Prozent skalieren oder ganz überschreiben. Die Sparrate kommt
 wahlweise automatisch aus dem Haushaltssaldo plus den planmäßigen Sparbeiträgen
 oder manuell. Ergebnis: FIRE-Zahl, Jahre bis zur Unabhängigkeit, voraussichtliches
 Datum, monatliche Entnahme und der Coast-FIRE-Fortschritt.
+
+### Kapitalertragsteuer
+
+Beträge in Posten und Buchungen sind Nettobeträge — dort rechnet die App nichts
+nach. Besteuert werden allein die Erträge der Investments, in Projektion wie
+FIRE-Rechnung:
+
+* **Laufend** fällt ein einstellbarer Anteil des Ertrags an (Vorgabe 30 %) und
+  wird sofort versteuert. 100 % passt zum Sparbuch, 0 % zu einer Aktie, die bis
+  zum Verkauf nichts ausschüttet. Was laufend versteuert wurde, erhöht die
+  Anschaffungskosten und wird kein zweites Mal besteuert.
+* **Bei der Entnahme** wird der Gewinnanteil des verkauften Bestands fällig —
+  das entspricht dem österreichischen gleitenden Durchschnittspreis. Deshalb
+  wandert die FIRE-Zahl mit: je mehr stille Reserven im Depot stecken, desto
+  mehr Depot braucht dieselbe Entnahme nach Steuer.
+
+Versteuert wird der **nominelle** Ertrag, auch wenn die Reihe real gerechnet
+ist; die KESt kennt keinen Inflationsabschlag. Unter „Daten“ lässt sich die
+Steuer ganz abschalten — dann rechnet die App wie zuvor mit Bruttorenditen.
 
 ### Darstellung
 
@@ -294,11 +316,21 @@ Sparquote              = (Monatssaldo + Sparbeiträge) ÷ Einnahmen
 
 Gesamtvermögen         = sonstiges Vermögen + Σ Investments
 Portfoliorendite       = Σ (Wert × Renditeerwartung) ÷ Σ Wert
+KESt-Satz              = Σ (Wert × Steuersatz) ÷ Σ Wert
+Rendite nach KESt      = Rendite × (1 − KESt-Satz × laufend versteuerter Anteil)
 ```
 
 ## Grenzen
 
 Die Projektion unterstellt eine konstante Realrendite und gleichbleibende Posten
 außerhalb der Szenarien. Reale Märkte schwanken; gerade die ersten Jahre einer
-Entnahmephase entscheiden über deren Erfolg. Die Zahlen sind eine Größenordnung
-für die eigene Planung, keine Anlageberatung und keine Zusage.
+Entnahmephase entscheiden über deren Erfolg.
+
+Die Steuerrechnung ist ein Modell, keine Steuerberatung: Der laufend versteuerte
+Ertragsanteil ist eine Annahme, und Freibetrag, Verlustausgleich, Auslandsdepots
+ohne KESt-Abzug sowie Altbestände sind nicht abgebildet. Lohn- und
+Einkommensteuer bleiben außen vor — Posten und Buchungen gelten als bereits
+versteuert.
+
+Die Zahlen sind eine Größenordnung für die eigene Planung, keine Anlageberatung
+und keine Zusage.

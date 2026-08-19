@@ -91,9 +91,7 @@ HB.views = HB.views || {};
     bar.appendChild(ui.field('Rendite auf Vermögen (% p. a.)', ui.numInput(view.returnPct, {
       step: '0.5', style: 'width:110px',
       onchange: function (e) { view.returnPct = U.parseNum(e.target.value); HB.app.repaint(); }
-    }), pr == null
-      ? 'nominal, auf den Bestand'
-      : 'Vorgabe aus dem Portfolio: ' + U.num(pr, 2) + ' %'));
+    }), returnHint(state, pr)));
 
     if (state.plans.length) {
       bar.appendChild(ui.field('Aktive Szenarien',
@@ -206,8 +204,30 @@ HB.views = HB.views || {};
       },
       foot: 'Der Bestand wird monatlich mit ' + U.num(view.returnPct, 1) +
             ' % p. a. verzinst; Saldo und Sparbeiträge fließen zusätzlich zu.' +
-            growthNote(S.state)
+            taxNote(S.state) + growthNote(S.state)
     });
+  }
+
+  /**
+   * Die eingetippte Rendite ist brutto — der Hinweis nennt, was nach der
+   * laufenden KESt davon übrig bleibt.
+   */
+  function returnHint(state, pr) {
+    var tax = C.taxSettings(state);
+    var base = pr == null
+      ? 'nominal, auf den Bestand'
+      : 'Vorgabe aus dem Portfolio: ' + U.num(pr, 2) + ' %';
+    if (!tax.enabled) return base;
+    return base + ' · ' + U.num(C.netReturnPct(state, view.returnPct || 0, tax), 2) +
+      ' % nach laufender KESt';
+  }
+
+  /** Nennt die Steuer, die in der Kurve schon abgezogen ist. */
+  function taxNote(state) {
+    var tax = C.taxSettings(state);
+    if (!tax.enabled) return ' Kapitalertragsteuer ist abgeschaltet.';
+    return ' Von den Erträgen gehen ' + U.num(tax.ongoingSharePct, 0) + ' % laufend mit ' +
+      U.num(tax.ratePct, 2) + ' % KESt ab; der Rest bleibt als aufgeschobene Steuer im Bestand.';
   }
 
   /** Weist darauf hin, dass die Projektion Progressionen bereits enthält. */
@@ -388,17 +408,20 @@ HB.views = HB.views || {};
     var years = {};
     rows.forEach(function (r) {
       var y = r.key.slice(0, 4);
-      if (!years[y]) years[y] = { income: 0, expense: 0, net: 0, assets: 0, n: 0 };
+      if (!years[y]) years[y] = { income: 0, expense: 0, net: 0, assets: 0, tax: 0, n: 0 };
       years[y].income += r.income;
       years[y].expense += r.expense;
       years[y].net += r.net;
       years[y].assets = r.assets;
+      years[y].tax += r.tax || 0;
       years[y].n++;
     });
 
     return ui.card({
       title: 'Jahresübersicht',
       sub: 'aggregiert aus der Projektion',
+      foot: 'Die Spalte „KESt" zeigt die laufend gezahlte Kapitalertragsteuer. ' +
+            'Sie ist im ausgewiesenen Vermögen bereits abgezogen.',
       raw: U.el('div', { class: 'table-wrap' }, [
         U.el('table', { class: 'tbl' }, [
           U.el('thead', {}, U.el('tr', {}, [
@@ -406,6 +429,7 @@ HB.views = HB.views || {};
             U.el('th', { class: 'num', text: 'Einnahmen' }),
             U.el('th', { class: 'num', text: 'Ausgaben' }),
             U.el('th', { class: 'num', text: 'Saldo' }),
+            U.el('th', { class: 'num', text: 'KESt' }),
             U.el('th', { class: 'num', text: 'Vermögen (Ende)' })
           ])),
           U.el('tbody', {}, Object.keys(years).sort().map(function (y) {
@@ -418,6 +442,7 @@ HB.views = HB.views || {};
               U.el('td', { class: 'num', text: U.currency(v.income, { digits: 0 }) }),
               U.el('td', { class: 'num', text: U.currency(v.expense, { digits: 0 }) }),
               U.el('td', { class: 'num ' + ui.toneClass(v.net), text: U.currency(v.net, { digits: 0, sign: true }) }),
+              U.el('td', { class: 'num muted', text: v.tax > 0.5 ? U.currency(v.tax, { digits: 0 }) : '—' }),
               U.el('td', { class: 'num', text: U.currency(v.assets, { digits: 0 }) })
             ]);
           }))

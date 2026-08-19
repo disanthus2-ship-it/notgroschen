@@ -65,7 +65,14 @@ window.HB = window.HB || {};
         projectionMonths: 60,
         sankeyMode: 'budget',      // 'budget' | 'direct'
         sankeyMinShare: 1.5,       // Anteil in %, darunter wird zu "Sonstige" gefaltet
-        emergencyMonths: 4         // Zielreichweite des Notgroschens in Monaten
+        emergencyMonths: 4,        // Zielreichweite des Notgroschens in Monaten
+        // Kapitalertragsteuer. Posten und Buchungen sind bereits versteuert —
+        // besteuert werden allein die Erträge der Investments.
+        tax: {
+          enabled: true,
+          ongoingSharePct: 30,     // Anteil des Ertrags, der jährlich anfällt
+          defaultRatePct: 27.5     // greift nur ohne bewertetes Portfolio
+        }
       },
       // assets = Vermögen außerhalb der Investments (Girokonto, Bargeld, Sparbuch).
       // Das Gesamtvermögen ist assets + Summe der Investments, siehe calc.totalAssets.
@@ -153,7 +160,7 @@ window.HB = window.HB || {};
     s.investments = [
       {
         id: U.uid('inv'), label: 'MSCI World ETF', type: 'etf', owner: 'household',
-        currentValue: 21400, costBasis: 18200, expectedReturnPct: 6.5,
+        currentValue: 21400, costBasis: 18200, expectedReturnPct: 6.5, taxRatePct: null,
         linkedItemId: etfItem ? etfItem.id : null, provider: 'Depotbank', note: ''
       },
       {
@@ -310,6 +317,13 @@ window.HB = window.HB || {};
       fire: Object.assign(defaultFire(), raw.fire || {})
     };
 
+    // settings.tax ist verschachtelt: eine Datei, die nur `enabled` mitbringt,
+    // darf die übrigen Vorgaben nicht mitlöschen.
+    s.settings.tax = Object.assign({}, base.settings.tax, (raw.settings && raw.settings.tax) || {});
+    s.settings.tax.enabled = s.settings.tax.enabled !== false;
+    s.settings.tax.ongoingSharePct = U.clamp(Number(s.settings.tax.ongoingSharePct) || 0, 0, 100);
+    s.settings.tax.defaultRatePct = U.clamp(Number(s.settings.tax.defaultRatePct) || 0, 0, 100);
+
     s.people = s.people.map(function (p, i) {
       return {
         id: p.id || U.uid('per'),
@@ -388,6 +402,9 @@ window.HB = window.HB || {};
         costBasis: inv.costBasis == null || inv.costBasis === '' ? null : Number(inv.costBasis),
         expectedReturnPct: inv.expectedReturnPct == null || inv.expectedReturnPct === ''
           ? null : Number(inv.expectedReturnPct),
+        // null = KESt-Satz der Anlageart, sonst ausdrücklich gesetzt
+        taxRatePct: inv.taxRatePct == null || inv.taxRatePct === ''
+          ? null : Number(inv.taxRatePct),
         // null = Vorgabe der Anlageart, true/false = ausdrücklich gesetzt
         liquid: inv.liquid == null ? null : !!inv.liquid,
         // Ein Verweis auf einen gelöschten Posten wird gekappt, sonst zeigt die

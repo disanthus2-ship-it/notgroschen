@@ -96,6 +96,15 @@ andere wird beim Import mit Vorgaben aufgefüllt.
 | `sankeyMode` | `"budget"` · `"direct"` | `"budget"` |
 | `sankeyMinShare` | Zahl in Prozent | `1.5` |
 | `emergencyMonths` | Zahl | `4` — Zielreichweite des Notgroschens |
+| `tax` | Objekt, siehe unten | KESt-Annahmen für Projektion und FIRE |
+
+```jsonc
+"tax": {
+  "enabled": true,          // false rechnet ohne Steuer, wie vor der Einführung
+  "ongoingSharePct": 30,    // Anteil des Ertrags, der jährlich anfällt (0–100)
+  "defaultRatePct": 27.5    // Satz, solange keine Investments erfasst sind
+}
+```
 
 Fasse `settings` bei einem Datenimport nicht an — das sind Anzeigevorlieben.
 
@@ -267,6 +276,7 @@ also nur dann eine Buchung, wenn es daneben keinen laufenden Posten
   "currentValue": 21400,       // aktueller Wert, zählt zum Gesamtvermögen
   "costBasis": 18200,          // Einstandswert (Summe der Einzahlungen) oder null
   "expectedReturnPct": 6.5,    // Renditeerwartung p. a. nominal, oder null
+  "taxRatePct": null,          // null = KESt-Satz der Anlageart, sonst 0–100
   "liquid": null,              // null = Vorgabe der Anlageart, sonst true/false
   "linkedItemId": "itm_…",     // Verweis auf den Sparplan-Posten, oder null
   "provider": "Depotbank",
@@ -274,17 +284,18 @@ also nur dann eine Buchung, wenn es daneben keinen laufenden Posten
 }
 ```
 
-Erlaubte `type`-Werte — alles andere wird beim Import zu `sonstiges`:
+Erlaubte `type`-Werte — alles andere wird beim Import zu `sonstiges`. Die letzte
+Spalte ist der KESt-Satz, den die App ohne eigenes `taxRatePct` ansetzt:
 
-| Schlüssel | Anlageart | Schlüssel | Anlageart |
-|---|---|---|---|
-| `etf` | ETF | `versicherung` | Lebens-/Rentenversicherung |
-| `aktien` | Aktien (Einzelwerte) | `vorsorge` | Betriebliche Vorsorge |
-| `fonds` | Investmentfonds | `immobilie` | Immobilie |
-| `anleihen` | Anleihen | `edelmetall` | Edelmetalle & Rohstoffe |
-| `fixzins` | Fixzinssparen | `krypto` | Kryptowährungen |
-| `tagesgeld` | Tages- & Festgeld | `sonstiges` | Sonstiges |
-| `bausparer` | Bausparvertrag | | |
+| Schlüssel | Anlageart | KESt | Schlüssel | Anlageart | KESt |
+|---|---|---|---|---|---|
+| `etf` | ETF | 27,5 % | `versicherung` | Lebens-/Rentenversicherung | 0 % |
+| `aktien` | Aktien (Einzelwerte) | 27,5 % | `vorsorge` | Betriebliche Vorsorge | 0 % |
+| `fonds` | Investmentfonds | 27,5 % | `immobilie` | Immobilie | 0 % |
+| `anleihen` | Anleihen | 27,5 % | `edelmetall` | Edelmetalle & Rohstoffe | 0 % |
+| `fixzins` | Fixzinssparen | 25 % | `krypto` | Kryptowährungen | 27,5 % |
+| `tagesgeld` | Tages- & Festgeld | 25 % | `sonstiges` | Sonstiges | 27,5 % |
+| `bausparer` | Bausparvertrag | 25 % | | | |
 
 **Ein Investment erzeugt keinen Geldfluss.** Es ist reine Bestandsführung. Die
 monatliche Einzahlung ist ein ganz normaler Posten in `items` (Kategorie
@@ -300,6 +311,11 @@ schon, nur verknüpfen — keinen zweiten anlegen.
 Projektion und FIRE-Rechnung als Vorgabe verwenden. Positionen ohne
 Renditeerwartung (`null`) bleiben aus diesem Durchschnitt heraus, ziehen ihn
 also nicht künstlich nach unten.
+
+`taxRatePct` funktioniert genauso als Ausnahme: `null` heißt „Satz der
+Anlageart" und ist der Normalfall. Anders als bei der Rendite zählen hier **alle**
+bewerteten Positionen in den gewichteten Durchschnitt — eine steuerfreie
+Vorsorge senkt den Portfoliosatz zu Recht.
 
 ### `debts[]` — Kredite
 
@@ -417,7 +433,8 @@ nicht darauf.
 | `categoryId` existiert nicht | wird zu `cat_salary` bzw. `cat_other` |
 | `interval` unbekannt | wird zu `"monthly"` — ein Jahresbetrag zählt dann zwölffach |
 | `growth` unvollständig oder ohne gültiges `from` | wird zu `null`, die Progression ist weg |
-| `investments[].type` unbekannt | wird zu `"sonstiges"` |
+| `investments[].type` unbekannt | wird zu `"sonstiges"` — samt dessen KESt-Satz von 27,5 % |
+| `settings.tax.ongoingSharePct` / `defaultRatePct` außerhalb 0–100 | wird gekappt |
 | `debts[].type` unbekannt | wird zu `"other"` |
 | `dueMonth` außerhalb 1–12 | wird zu `null`, die Fälligkeit ist weg |
 | `linkedItemId` zeigt auf einen gelöschten Posten | wird auf `null` gesetzt |
@@ -578,7 +595,8 @@ Eine gültige Datei mit zwei Personen, einem Posten und einer Buchung:
     "startMonth": "2026-08",
     "projectionMonths": 60,
     "sankeyMode": "budget",
-    "sankeyMinShare": 1.5
+    "sankeyMinShare": 1.5,
+    "tax": { "enabled": true, "ongoingSharePct": 30, "defaultRatePct": 27.5 }
   },
   "household": { "budget": null, "assets": 0 },
   "people": [
@@ -654,7 +672,31 @@ Notgroschen       = Liquide Mittel ÷ (Monatsausgaben − Sparbeiträge)
 Gewinn            = Σ currentValue − Σ costBasis   (nur Positionen mit costBasis)
 Portfoliorendite  = Σ (currentValue × expectedReturnPct) ÷ Σ currentValue
                     (nur Positionen mit gesetzter Renditeerwartung)
+KESt-Satz         = Σ (currentValue × taxRatePct) ÷ Σ currentValue
+                    (alle bewerteten Positionen, Vorgabe je Anlageart)
 ```
+
+### Kapitalertragsteuer
+
+Beträge in `items` und `transactions` gelten als **bereits versteuert** — dort
+rechnet die App nichts nach. Besteuert werden allein die Erträge der
+Investments, und zwar in zwei Teilen:
+
+```
+laufend   = Ertrag × ongoingSharePct × KESt-Satz     (jährlich fällig)
+aufgeschoben = (Bestand − Anschaffungskosten) × KESt-Satz
+               (fällig anteilig bei der Entnahme, gleitender Durchschnittspreis)
+```
+
+Der laufend versteuerte Ertrag erhöht die Anschaffungskosten, wird also nicht
+ein zweites Mal besteuert. Die FIRE-Zahl steigt entsprechend:
+`Jahresausgaben ÷ (Entnahmerate × (1 − KESt-Satz × Gewinnanteil))`.
+
+`ongoingSharePct` ist eine **Modellannahme**, kein Steuerrecht: 100 % passt zum
+Sparbuch, 0 % zu einer Aktie, die bis zum Verkauf nichts ausschüttet, 30 % ist
+die Vorgabe für ein gemischtes Depot. Der Freibetrag für Kleinstbeträge,
+Verlustausgleich, Auslandsdepots ohne KESt-Abzug und die Behandlung von
+Altbeständen sind **nicht** abgebildet.
 
 Der Schlüssel folgt `settings.splitMode`: proportional zum Einkommen, zu
 gleichen Teilen, oder nach `people[].sharePct` (auf 100 % normalisiert).

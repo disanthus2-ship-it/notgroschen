@@ -94,12 +94,17 @@ HB.views = HB.views || {};
         : 'Kein Einstandswert hinterlegt'
     }));
 
+    // Brutto steht groß, netto darunter: die KESt schmälert den Zinseszins,
+    // aber die Renditeerwartung selbst ist die vertraute Zahl.
+    var tax = C.taxSettings(state);
     grid.appendChild(ui.stat({
       label: 'Erwartete Rendite',
       value: p.weightedReturn == null ? '—' : U.num(p.weightedReturn, 2) + ' %',
       sub: p.weightedReturn == null
         ? 'Keine Renditeerwartung hinterlegt'
-        : 'nach Wert gewichtet, p. a. nominal'
+        : 'nach Wert gewichtet, p. a. nominal' + (tax.enabled
+            ? ' · ' + U.num(C.netReturnPct(state, p.weightedReturn, tax), 2) + ' % nach laufender KESt'
+            : ' · KESt abgeschaltet')
     }));
 
     return grid;
@@ -259,6 +264,7 @@ HB.views = HB.views || {};
             U.el('th', { class: 'num', text: 'Aktueller Wert' }),
             U.el('th', { class: 'num', text: 'Gewinn' }),
             U.el('th', { class: 'num', text: 'Rendite p. a.' }),
+            U.el('th', { class: 'num', text: 'KESt' }),
             U.el('th', { text: 'Reserve' }),
             U.el('th', { text: 'Sparplan' }),
             U.el('th', { class: 'num', text: '' })
@@ -270,6 +276,7 @@ HB.views = HB.views || {};
             U.el('td', { class: 'num', text: U.currency(sumValue, { digits: 0 }) }),
             U.el('td', { class: 'num ' + ui.toneClass(sumValue - sumCost), text: sumCost ? U.currency(sumValue - sumCost, { digits: 0, sign: true }) : '—' }),
             U.el('td', { class: 'num', text: p.weightedReturn == null ? '—' : U.num(p.weightedReturn, 2) + ' %' }),
+            U.el('td', { class: 'num', text: p.weightedTax == null ? '—' : U.num(p.weightedTax, 2) + ' %' }),
             U.el('td', { text: '' }),
             U.el('td', { text: sumContrib ? U.currency(sumContrib, { digits: 0 }) + ' / Monat' : '' }),
             U.el('td', { text: '' })
@@ -303,6 +310,11 @@ HB.views = HB.views || {};
               (cost > 0 ? ' (' + U.pct(gain / cost, 1) + ')' : '')
       }),
       U.el('td', { class: 'num', text: inv.expectedReturnPct == null ? '—' : U.num(inv.expectedReturnPct, 2) + ' %' }),
+      U.el('td', {
+        class: 'num' + (inv.taxRatePct == null ? ' muted' : ''),
+        title: inv.taxRatePct == null ? 'Vorgabe der Anlageart' : 'Für diese Position gesetzt',
+        text: U.num(C.investmentTaxRate(inv), 2) + ' %'
+      }),
       U.el('td', {}, C.isLiquid(inv)
         ? U.el('span', { class: 'badge pos', text: 'liquide' })
         : U.el('span', { class: 'small muted', text: '—' })),
@@ -328,6 +340,7 @@ HB.views = HB.views || {};
       id: U.uid('inv'), label: '', type: 'etf', owner: 'household',
       currentValue: null, costBasis: null,
       expectedReturnPct: C.INVESTMENT_TYPES.etf.defaultReturn,
+      taxRatePct: null,
       liquid: null, linkedItemId: null, provider: '', note: ''
     };
 
@@ -335,6 +348,10 @@ HB.views = HB.views || {};
     var valueIn = ui.numInput(draft.currentValue, { placeholder: '0,00' });
     var costIn = ui.numInput(draft.costBasis, { placeholder: 'unbekannt' });
     var returnIn = ui.numInput(draft.expectedReturnPct, { step: '0.1', placeholder: 'ohne Erwartung' });
+    var taxIn = ui.numInput(draft.taxRatePct, {
+      step: '0.5', min: '0', max: '100',
+      placeholder: U.num(C.INVESTMENT_TYPES[draft.type].tax, 2) + ' (Vorgabe)'
+    });
     var providerIn = ui.textInput(draft.provider, { placeholder: 'Depot, Bank, Broker' });
     var liquidIn = U.el('input', { type: 'checkbox', checked: C.isLiquid(draft) });
     var noteIn = ui.textInput(draft.note, { placeholder: 'optional' });
@@ -355,6 +372,8 @@ HB.views = HB.views || {};
         if (returnIn.value === '' || U.parseNum(returnIn.value) === prevDefault) {
           returnIn.value = C.INVESTMENT_TYPES[v].defaultReturn;
         }
+        // Der Steuersatz bleibt leer und folgt damit still der neuen Anlageart.
+        taxIn.placeholder = U.num(C.INVESTMENT_TYPES[v].tax, 2) + ' (Vorgabe)';
       }
     );
 
@@ -451,6 +470,8 @@ HB.views = HB.views || {};
           ui.field('Aktueller Wert (€)', valueIn, 'Zählt zum Gesamtvermögen'),
           ui.field('Einstandswert (€)', costIn, 'Summe der Einzahlungen, optional'),
           ui.field('Erwartete Rendite (% p. a.)', returnIn, 'Vorgabe je Anlageart, frei änderbar'),
+          ui.field('KESt (%)', taxIn,
+            'Leer lassen für die Vorgabe: 27,5 % Wertpapiere, 25 % Geldeinlagen, 0 % steuerfrei'),
           ui.field('Anbieter', providerIn),
           ui.field('Zählt zum Notgroschen',
             U.el('label', { class: 'checkline' }, [liquidIn, U.el('span', { text: 'kurzfristig verfügbar' })]),
@@ -485,6 +506,7 @@ HB.views = HB.views || {};
             draft.currentValue = value;
             draft.costBasis = costIn.value === '' ? null : U.parseNum(costIn.value);
             draft.expectedReturnPct = returnIn.value === '' ? null : U.parseNum(returnIn.value);
+            draft.taxRatePct = taxIn.value === '' ? null : U.clamp(U.parseNum(taxIn.value), 0, 100);
             draft.provider = providerIn.value.trim();
             draft.note = noteIn.value.trim();
             // Nur speichern, wenn von der Vorgabe der Anlageart abgewichen wird.

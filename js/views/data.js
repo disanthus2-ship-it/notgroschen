@@ -29,6 +29,9 @@ HB.views = HB.views || {};
       appearanceCard(state)
     ]));
 
+    root.appendChild(U.el('div', { class: 'section-title', text: 'Kapitalertragsteuer' }));
+    root.appendChild(taxCard(state));
+
     root.appendChild(U.el('div', { class: 'section-title', text: 'Bestand' }));
     root.appendChild(statsCard(state));
 
@@ -174,6 +177,68 @@ HB.views = HB.views || {};
         U.el('div', { class: 'callout', style: { marginTop: '4px' } }, [
           'Auto-Speicherung ist aktiv: Jede Änderung landet sofort im lokalen Speicher dieses Browsers. ' +
           'Für Backups, Gerätewechsel oder das Teilen mit der zweiten Person ist trotzdem die Datei der richtige Weg.'
+        ])
+      ])
+    });
+  }
+
+  /* --- Kapitalertragsteuer ------------------------------------------------ */
+
+  /**
+   * Die Steuer betrifft nur die Erträge der Investments. Posten und Buchungen
+   * sind Nettobeträge — dort wird nichts nachgerechnet.
+   */
+  function taxCard(state) {
+    var t = state.settings.tax || {};
+    var eff = C.taxSettings(state);
+
+    var enabledIn = U.el('input', {
+      type: 'checkbox', checked: t.enabled !== false,
+      onchange: function (e) {
+        var on = e.target.checked;
+        S.update(function (st) { st.settings.tax.enabled = on; }, 'settings');
+        HB.app.repaint();
+      }
+    });
+
+    var shareIn = ui.numInput(t.ongoingSharePct == null ? 30 : t.ongoingSharePct, {
+      step: '5', min: '0', max: '100',
+      onchange: function (e) {
+        var v = U.clamp(U.parseNum(e.target.value), 0, 100);
+        S.update(function (st) { st.settings.tax.ongoingSharePct = v; }, 'settings');
+        HB.app.repaint();
+      }
+    });
+
+    var rateIn = ui.numInput(t.defaultRatePct == null ? 27.5 : t.defaultRatePct, {
+      step: '0.5', min: '0', max: '100',
+      onchange: function (e) {
+        var v = U.clamp(U.parseNum(e.target.value), 0, 100);
+        S.update(function (st) { st.settings.tax.defaultRatePct = v; }, 'settings');
+        HB.app.repaint();
+      }
+    });
+
+    return ui.card({
+      title: 'Kapitalertragsteuer (KESt)',
+      sub: 'Wirkt in der Projektion und im FIRE-Rechner',
+      body: U.el('div', {}, [
+        ui.field('Steuer einrechnen',
+          U.el('label', { class: 'checkline' }, [enabledIn, U.el('span', { text: 'KESt auf Kapitalerträge' })]),
+          'Abgeschaltet rechnet die App wie bisher ohne Steuer'),
+        ui.field('Laufend versteuerter Anteil (%)', shareIn,
+          'Wie viel des Ertrags jährlich anfällt: Zinsen und Dividenden zu 100 %, ' +
+          'thesaurierende Fonds nur mit den ausschüttungsgleichen Erträgen. Der Rest wird erst bei der Entnahme fällig.'),
+        ui.field('Satz ohne Portfolio (%)', rateIn,
+          'Greift nur, solange keine Investments erfasst sind — sonst gilt der gewichtete Satz des Portfolios'),
+        U.el('div', { class: 'callout', style: { marginTop: '4px' } }, [
+          eff.enabled
+            ? 'Aktuell angesetzt: ' + U.num(eff.ratePct, 2) + ' % KESt' +
+              (eff.isPortfolioRate ? ' — nach Wert gewichtet aus den erfassten Investments.' : ' — Vorgabe, es sind keine Investments erfasst.') +
+              ' Die Sätze je Anlageart (27,5 % Wertpapiere und Krypto, 25 % Geldeinlagen, 0 % Vorsorge, ' +
+              'Versicherung, Immobilien und Edelmetalle) stehen bei jedem Investment und lassen sich dort einzeln überschreiben. ' +
+              'Beträge in Posten und Buchungen gelten als bereits versteuert.'
+            : 'Die Kapitalertragsteuer ist abgeschaltet. Projektion und FIRE-Rechner arbeiten mit Bruttorenditen.'
         ])
       ])
     });

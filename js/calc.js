@@ -112,28 +112,34 @@ window.HB = window.HB || {};
   /* --- Anlagearten -------------------------------------------------------- */
 
   /**
-   * Die Renditen sind Vorgaben für das Formular, keine Prognosen — sie lassen
-   * sich je Investment überschreiben und sind bewusst zurückhaltend gewählt.
-   */
-  /**
-   * `liquid` ist die Vorgabe für den Notgroschen und bewusst streng: Als
-   * Reserve zählt, was ohne Kursrisiko und ohne Bindung verfügbar ist. Wer
-   * seinen ETF als Rücklage betrachtet, kann das je Position umstellen.
+   * Vorgaben je Anlageart. Alle drei Werte sind je Position überschreibbar.
+   *
+   * `defaultReturn` — Renditeerwartung, bewusst zurückhaltend, keine Prognose.
+   *
+   * `liquid` — zählt zum Notgroschen. Streng gefasst: nur was ohne Kursrisiko
+   * und ohne Bindung greifbar ist.
+   *
+   * `tax` — österreichischer KESt-Satz auf die Erträge: 27,5 % auf Wertpapiere,
+   * Fonds, Derivate und Kryptowährungen, 25 % auf Geldeinlagen bei
+   * Kreditinstituten. Mit 0 sind Anlagen erfasst, bei denen keine laufende KESt
+   * anfällt — betriebliche Vorsorge, Lebensversicherung (Versicherungssteuer
+   * statt KESt), physische Edelmetalle nach der Behaltefrist und Immobilien,
+   * bei denen erst der Verkauf ImmoESt auslöst.
    */
   var INVESTMENT_TYPES = {
-    etf:         { label: 'ETF',                  defaultReturn: 6.5, liquid: false },
-    aktien:      { label: 'Aktien (Einzelwerte)', defaultReturn: 7,   liquid: false },
-    fonds:       { label: 'Investmentfonds',      defaultReturn: 5,   liquid: false },
-    anleihen:    { label: 'Anleihen',             defaultReturn: 3,   liquid: false },
-    fixzins:     { label: 'Fixzinssparen',        defaultReturn: 3,   liquid: false },
-    tagesgeld:   { label: 'Tages- & Festgeld',    defaultReturn: 2.5, liquid: true },
-    bausparer:   { label: 'Bausparvertrag',       defaultReturn: 1.5, liquid: false },
-    versicherung:{ label: 'Lebens-/Rentenversicherung', defaultReturn: 2, liquid: false },
-    vorsorge:    { label: 'Betriebliche Vorsorge', defaultReturn: 3,  liquid: false },
-    immobilie:   { label: 'Immobilie',            defaultReturn: 3,   liquid: false },
-    edelmetall:  { label: 'Edelmetalle & Rohstoffe', defaultReturn: 3, liquid: false },
-    krypto:      { label: 'Kryptowährungen',      defaultReturn: 8,   liquid: false },
-    sonstiges:   { label: 'Sonstiges',            defaultReturn: 3,   liquid: false }
+    etf:         { label: 'ETF',                  defaultReturn: 6.5, liquid: false, tax: 27.5 },
+    aktien:      { label: 'Aktien (Einzelwerte)', defaultReturn: 7,   liquid: false, tax: 27.5 },
+    fonds:       { label: 'Investmentfonds',      defaultReturn: 5,   liquid: false, tax: 27.5 },
+    anleihen:    { label: 'Anleihen',             defaultReturn: 3,   liquid: false, tax: 27.5 },
+    fixzins:     { label: 'Fixzinssparen',        defaultReturn: 3,   liquid: false, tax: 25 },
+    tagesgeld:   { label: 'Tages- & Festgeld',    defaultReturn: 2.5, liquid: true,  tax: 25 },
+    bausparer:   { label: 'Bausparvertrag',       defaultReturn: 1.5, liquid: false, tax: 25 },
+    versicherung:{ label: 'Lebens-/Rentenversicherung', defaultReturn: 2, liquid: false, tax: 0 },
+    vorsorge:    { label: 'Betriebliche Vorsorge', defaultReturn: 3,  liquid: false, tax: 0 },
+    immobilie:   { label: 'Immobilie',            defaultReturn: 3,   liquid: false, tax: 0 },
+    edelmetall:  { label: 'Edelmetalle & Rohstoffe', defaultReturn: 3, liquid: false, tax: 0 },
+    krypto:      { label: 'Kryptowährungen',      defaultReturn: 8,   liquid: false, tax: 27.5 },
+    sonstiges:   { label: 'Sonstiges',            defaultReturn: 3,   liquid: false, tax: 27.5 }
   };
 
   /** Kreditarten. `label` erscheint in Auswahl und Tabelle. */
@@ -149,6 +155,13 @@ window.HB = window.HB || {};
 
   function debtTypeLabel(t) {
     return (DEBT_TYPES[t] || DEBT_TYPES.other).label;
+  }
+
+  /** KESt-Satz dieser Position in Prozent. */
+  function investmentTaxRate(inv) {
+    if (inv.taxRatePct != null) return Number(inv.taxRatePct) || 0;
+    var t = INVESTMENT_TYPES[inv.type] || INVESTMENT_TYPES.sonstiges;
+    return t.tax;
   }
 
   /** Gilt diese Position als jederzeit verfügbare Reserve? */
@@ -599,11 +612,14 @@ window.HB = window.HB || {};
       byType: {},
       byOwner: {},
       weightedReturn: null,
+      weightedTax: null,     // gewichteter KESt-Satz des Bestands in Prozent
       contributionMonthly: 0 // Summe der verknüpften Sparplan-Posten
     };
 
     var weighted = 0;
     var weightBase = 0;
+    var weightedTax = 0;
+    var taxBase = 0;
 
     list.forEach(function (inv) {
       var v = Number(inv.currentValue) || 0;
@@ -621,6 +637,10 @@ window.HB = window.HB || {};
         weighted += v * Number(inv.expectedReturnPct);
         weightBase += v;
       }
+      if (v > 0) {
+        weightedTax += v * investmentTaxRate(inv);
+        taxBase += v;
+      }
       var it = inv.linkedItemId ? U.byId(state.items, inv.linkedItemId) : null;
       if (it && it.active !== false) res.contributionMonthly += perMonthAt(it, U.monthKey());
     });
@@ -630,6 +650,9 @@ window.HB = window.HB || {};
     // Nur bewertete Positionen gehen in den Durchschnitt ein; ein Investment
     // ohne Renditeerwartung zieht das Ergebnis nicht künstlich nach unten.
     res.weightedReturn = weightBase > 0 ? weighted / weightBase : null;
+    // Steuerfreie Anlagearten (Vorsorge, Immobilie) zählen hier mit 0 % mit —
+    // anders als bei der Rendite senken sie den Durchschnitt zu Recht.
+    res.weightedTax = taxBase > 0 ? weightedTax / taxBase : null;
 
     return res;
   }
@@ -642,6 +665,123 @@ window.HB = window.HB || {};
   /** Gewichtete Renditeerwartung des Portfolios, oder null ohne Investments. */
   function portfolioReturn(state) {
     return investmentSummary(state).weightedReturn;
+  }
+
+  /* --- Kapitalertragsteuer ------------------------------------------------- */
+
+  /**
+   * Das Steuermodell in drei Sätzen.
+   *
+   * 1. Posten und Buchungen sind bereits versteuert — dort rührt die App nichts
+   *    an. Besteuert werden allein die Erträge der Investments.
+   * 2. Ein Teil des Ertrags fällt **laufend** an und wird jährlich besteuert:
+   *    Zinsen, Dividenden und bei thesaurierenden Fonds die
+   *    ausschüttungsgleichen Erträge. Der Anteil ist eine Modellannahme
+   *    (`settings.tax.ongoingSharePct`) — 100 % entspricht einem Sparbuch,
+   *    0 % einer Aktie, die bis zum Verkauf nichts ausschüttet.
+   * 3. Der aufgeschobene Rest wird erst **bei der Entnahme** fällig, und zwar
+   *    auf den Gewinnanteil des verkauften Bestands. Das entspricht dem
+   *    österreichischen gleitenden Durchschnittspreis: Wer 10 % seines Depots
+   *    verkauft, realisiert 10 % der stillen Reserven.
+   *
+   * Laufend versteuerte Erträge erhöhen die Anschaffungskosten — auf sie fällt
+   * bei der Entnahme keine Steuer mehr an.
+   */
+  function taxSettings(state) {
+    var t = (state.settings && state.settings.tax) || {};
+    var portfolio = investmentSummary(state);
+    var rate = portfolio.weightedTax != null
+      ? portfolio.weightedTax
+      : (t.defaultRatePct == null ? 27.5 : Number(t.defaultRatePct));
+
+    return {
+      enabled: t.enabled !== false,
+      ratePct: t.enabled === false ? 0 : rate,
+      rate: (t.enabled === false ? 0 : rate) / 100,
+      ongoingSharePct: t.ongoingSharePct == null ? 30 : Number(t.ongoingSharePct),
+      ongoingShare: (t.ongoingSharePct == null ? 30 : Number(t.ongoingSharePct)) / 100,
+      isPortfolioRate: portfolio.weightedTax != null
+    };
+  }
+
+  /** Rendite nach laufender KESt — die Zahl, mit der der Bestand tatsächlich wächst. */
+  function netReturnPct(state, grossPct, tax) {
+    var t = tax || taxSettings(state);
+    return grossPct * (1 - t.rate * t.ongoingShare);
+  }
+
+  /**
+   * Ein Monat Vermögensentwicklung inklusive Steuer.
+   * Gibt den neuen Bestand, die neuen Anschaffungskosten und die gezahlte
+   * Steuer zurück.
+   *
+   * opts.taxGainRate: Ertragsrate, auf die Steuer anfällt. Rechnet die
+   *   Reihe real, wächst der Bestand mit der realen Rate, versteuert wird aber
+   *   der nominelle Ertrag — die KESt kennt keinen Inflationsabschlag.
+   * opts.basisDecay: Faktor, mit dem der Einstand je Monat an realem Wert
+   *   verliert (1/(1+Inflation)). Nominell bleibt er konstant; in einer realen
+   *   Reihe schrumpft er und lässt die stillen Reserven zu Recht wachsen.
+   */
+  function growAssets(assets, basis, rMonthly, contribution, tax, opts) {
+    opts = opts || {};
+    var taxRate = opts.taxGainRate == null ? rMonthly : opts.taxGainRate;
+    var decay = opts.basisDecay == null ? 1 : opts.basisDecay;
+
+    var gain = assets * rMonthly;
+    var taxable = assets * taxRate;
+    var taxedNow = taxable > 0 ? taxable * tax.ongoingShare : 0;
+    var paid = taxedNow * tax.rate;
+
+    return {
+      assets: assets + gain - paid + contribution,
+      // Der laufend versteuerte Ertrag zählt künftig als Einstand.
+      basis: basis * decay + (taxedNow - paid) + contribution,
+      tax: paid
+    };
+  }
+
+  /** Anteil stiller Reserven am Bestand — die Bemessungsgrundlage der Entnahme. */
+  function gainShare(assets, basis) {
+    if (!(assets > 0)) return 0;
+    return U.clamp((assets - basis) / assets, 0, 1);
+  }
+
+  /**
+   * Zielvermögen für eine Entnahme nach Steuer. Von jeder Entnahme bleiben nur
+   * (1 − Steuersatz × Gewinnanteil) übrig, also muss das Depot entsprechend
+   * größer sein. Ohne Steuer bleibt es bei Jahresbedarf ÷ Entnahmerate.
+   */
+  function fireTarget(annualSpend, swr, tax, share) {
+    if (!(swr > 0)) return Infinity;
+    var net = 1 - tax.rate * U.clamp(share || 0, 0, 1);
+    if (!(net > 0)) return Infinity;
+    return annualSpend / (swr * net);
+  }
+
+  /**
+   * Anschaffungskosten des heutigen Vermögens. Wo kein Einstandswert
+   * hinterlegt ist, wird der aktuelle Wert angesetzt — dann gibt es rechnerisch
+   * keine stillen Reserven, was die Steuer eher unter- als überschätzt.
+   */
+  function assetBasis(state) {
+    var basis = Number(state.household.assets) || 0;   // Konto: kein Kursgewinn
+    (state.investments || []).forEach(function (inv) {
+      var v = Number(inv.currentValue) || 0;
+      basis += inv.costBasis == null ? v : Math.min(Number(inv.costBasis) || 0, v);
+    });
+    return basis;
+  }
+
+  /**
+   * Anschaffungskosten zu einem frei gesetzten Startvermögen. Wer in der
+   * FIRE-Maske ein anderes Startvermögen eintippt, behält den stillen-Reserven-
+   * Anteil des echten Portfolios — ohne Portfolio gilt alles als Einstand.
+   */
+  function startBasisFor(state, assets) {
+    var real = totalAssets(state);
+    if (!(assets > 0)) return 0;
+    if (!(real > 0)) return assets;
+    return assets * U.clamp(assetBasis(state) / real, 0, 1);
   }
 
   /** Summe aller Restschulden. */
@@ -692,6 +832,11 @@ window.HB = window.HB || {};
   /**
    * Monatsreihe über einen Zeitraum. Liefert je Monat Einnahmen, Ausgaben,
    * Saldo, kumulierten Saldo und das fortgeschriebene Vermögen.
+   *
+   * Die Rendite wird brutto übergeben; die laufende KESt zieht die Reihe selbst
+   * ab und schreibt den Einstand mit, damit die aufgeschobene Steuer sichtbar
+   * bleibt. Posten und Buchungen sind bereits versteuert und bleiben unberührt.
+   *
    * opts: { from, months, plans, startAssets, returnPct, includeTransactions }
    */
   function project(state, opts) {
@@ -701,6 +846,10 @@ window.HB = window.HB || {};
     var plans = opts.plans || [];
     var assets = opts.startAssets != null ? opts.startAssets : totalAssets(state);
     var rMonthly = opts.returnPct ? Math.pow(1 + opts.returnPct / 100, 1 / 12) - 1 : 0;
+
+    var tax = opts.tax || taxSettings(state);
+    var basis = opts.startBasis != null ? opts.startBasis : startBasisFor(state, assets);
+    var taxTotal = 0;
 
     // Einmal je Projektion statt einmal je Monat berechnen. Anker ist der
     // Startmonat der Planung, damit die Restschuld überall dieselbe bleibt.
@@ -721,7 +870,11 @@ window.HB = window.HB || {};
       }));
       var contribution = s.net + s.savingContrib;
       cum += s.net;
-      assets = assets * (1 + rMonthly) + contribution;
+
+      var step = growAssets(assets, basis, rMonthly, contribution, tax);
+      assets = step.assets;
+      basis = step.basis;
+      taxTotal += step.tax;
 
       var debt = 0;
       schedules.forEach(function (x) {
@@ -737,6 +890,11 @@ window.HB = window.HB || {};
         contribution: contribution,
         cumulative: cum,
         assets: assets,
+        basis: basis,
+        gainShare: gainShare(assets, basis),
+        tax: step.tax,
+        taxCumulative: taxTotal,
+        deferredTax: Math.max(0, assets - basis) * tax.rate,
         debt: debt,
         netWorth: assets - debt,
         summary: s
@@ -819,7 +977,8 @@ window.HB = window.HB || {};
       : annualSpendToday * spendFactor;
 
     var swr = (Number(f.withdrawalPct) || 3.5) / 100;
-    var fireNumber = swr > 0 ? annualSpend / swr : Infinity;
+    var tax = taxSettings(state);
+    var fireNumberGross = swr > 0 ? annualSpend / swr : Infinity;
 
     var autoContribution = base.net + base.savingContrib;
     var contribution = (f.monthlyContribution != null && f.monthlyContribution !== '')
@@ -842,30 +1001,69 @@ window.HB = window.HB || {};
     var realMonthly = Math.pow(1 + realAnnual, 1 / 12) - 1;
     var growth = (Number(f.contributionGrowthPct) || 0) / 100;
 
+    // Gewachsen wird real, versteuert wird der nominelle Ertrag; der Einstand
+    // verliert real an Wert. So bleibt die KESt eine Steuer auf Nominalgewinne.
+    var nominalMonthly = Math.pow(1 + nominal, 1 / 12) - 1;
+    var inflMonthly = Math.pow(1 + infl, 1 / 12) - 1;
+    var step = { taxGainRate: nominalMonthly, basisDecay: 1 / (1 + inflMonthly) };
+
+    var nominalNet = nominal * (1 - tax.rate * tax.ongoingShare);
+    var netRealAnnual = (1 + nominalNet) / (1 + infl) - 1;
+
     var maxMonths = (Number(f.maxYears) || 60) * 12;
     var assets = startAssets;
-    var series = [{ month: 0, assets: assets, target: fireNumber, contributed: 0 }];
-    var reachedAt = assets >= fireNumber ? 0 : null;
+    var basis = startBasisFor(state, startAssets);
+    var target = fireTarget(annualSpend, swr, tax, gainShare(assets, basis));
+
+    var series = [{ month: 0, assets: assets, target: target, contributed: 0 }];
+    var reachedAt = assets >= target ? 0 : null;
+    var fireNumber = target;
+    var gainShareAtFire = gainShare(assets, basis);
     var contributedTotal = 0;
+    var taxTotal = 0;
     var c = contribution;
 
     for (var m = 1; m <= maxMonths; m++) {
       if (m > 1 && (m - 1) % 12 === 0) c = c * (1 + growth);
-      assets = assets * (1 + realMonthly) + c;
+      var g = growAssets(assets, basis, realMonthly, c, tax, step);
+      assets = g.assets;
+      basis = g.basis;
+      taxTotal += g.tax;
       contributedTotal += c;
-      if (reachedAt == null && assets >= fireNumber) reachedAt = m;
+
+      // Das Ziel wandert mit: je größer die stillen Reserven, desto mehr
+      // Depot braucht es für dieselbe Entnahme nach Steuer.
+      target = fireTarget(annualSpend, swr, tax, gainShare(assets, basis));
+      if (reachedAt == null && assets >= target) {
+        reachedAt = m;
+        fireNumber = target;
+        gainShareAtFire = gainShare(assets, basis);
+      }
       if (m % 3 === 0 || m === maxMonths) {
-        series.push({ month: m, assets: assets, target: fireNumber, contributed: contributedTotal });
+        series.push({ month: m, assets: assets, target: target, contributed: contributedTotal });
       }
       if (reachedAt != null && m >= reachedAt + 12) break;   // etwas Nachlauf für die Kurve
+    }
+    if (reachedAt == null) {
+      fireNumber = target;
+      gainShareAtFire = gainShare(assets, basis);
     }
 
     var years = reachedAt == null ? null : reachedAt / 12;
     var coastYears = Number(f.coastYears) || 20;
-    var coastNumber = fireNumber / Math.pow(1 + realAnnual, coastYears);
+    var coastNumber = fireNumber / Math.pow(1 + netRealAnnual, coastYears);
 
     return {
       fireNumber: fireNumber,
+      fireNumberGross: fireNumberGross,
+      taxSurcharge: fireNumber - fireNumberGross,
+      tax: tax,
+      taxTotal: taxTotal,
+      gainShareAtFire: gainShareAtFire,
+      deferredTax: Math.max(0, assets - basis) * tax.rate,
+      finalBasis: basis,
+      netRealAnnual: netRealAnnual,
+      netReturnPct: netReturnPct(state, Number(returnPct) || 0, tax),
       annualSpend: annualSpend,
       annualSpendToday: annualSpendToday,
       monthlySpend: monthlySpend,
@@ -890,6 +1088,7 @@ window.HB = window.HB || {};
       coastYears: coastYears,
       coastNumber: coastNumber,
       monthlyWithdrawal: fireNumber * swr / 12,
+      monthlyWithdrawalNet: fireNumber * swr * (1 - tax.rate * gainShareAtFire) / 12,
       series: series,
       maxYears: Number(f.maxYears) || 60
     };
@@ -1051,8 +1250,16 @@ window.HB = window.HB || {};
     growthSteps: growthSteps,
     growthFactor: growthFactor,
     investmentSummary: investmentSummary,
+    investmentTaxRate: investmentTaxRate,
     totalAssets: totalAssets,
     portfolioReturn: portfolioReturn,
+    taxSettings: taxSettings,
+    netReturnPct: netReturnPct,
+    growAssets: growAssets,
+    gainShare: gainShare,
+    fireTarget: fireTarget,
+    assetBasis: assetBasis,
+    startBasisFor: startBasisFor,
     debtPayment: debtPayment,
     debtSchedule: debtSchedule,
     debtBalanceAt: debtBalanceAt,

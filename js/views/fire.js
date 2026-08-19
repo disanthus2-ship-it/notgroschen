@@ -150,6 +150,7 @@ HB.views = HB.views || {};
           ? 'automatisch: 6 % (keine Investments erfasst)'
           : 'automatisch: ' + U.num(portfolio.weightedReturn, 2) + ' % aus dem Portfolio',
         'nominal, vor Inflation'),
+      taxNote(state, f),
       ui.field('Inflation (% p. a.)',
         ui.numInput(f.inflationPct, { step: '0.1', oninput: bind('inflationPct') })),
       ui.field('Sichere Entnahmerate (% p. a.)',
@@ -185,6 +186,28 @@ HB.views = HB.views || {};
     return ui.card({ title: 'Annahmen', body: body });
   }
 
+  /**
+   * Die Steuer wird unter „Daten" eingestellt, wirkt sich hier aber unmittelbar
+   * auf die Rendite aus — deshalb steht sie direkt unter dem Renditefeld.
+   */
+  function taxNote(state, f) {
+    var tax = C.taxSettings(state);
+    if (!tax.enabled) {
+      return U.el('p', { class: 'small muted', text: 'Kapitalertragsteuer ist abgeschaltet (Daten → Kapitalertragsteuer).' });
+    }
+    var portfolio = C.investmentSummary(state);
+    var gross = f.returnPct == null || f.returnPct === ''
+      ? (portfolio.weightedReturn == null ? 6 : portfolio.weightedReturn)
+      : Number(f.returnPct);
+
+    return U.el('p', { class: 'small muted' }, [
+      U.num(tax.ratePct, 2) + ' % KESt' +
+      (tax.isPortfolioRate ? ' (gewichtet aus dem Portfolio)' : ' (Vorgabe)') +
+      ' auf ' + U.num(tax.ongoingSharePct, 0) + ' % laufend anfallenden Ertrag: ' +
+      U.num(C.netReturnPct(state, gross, tax), 2) + ' % netto. Der Rest wird bei der Entnahme fällig.'
+    ]);
+  }
+
   /* --- Ergebnisse --------------------------------------------------------- */
 
   function kpis(state, r) {
@@ -195,7 +218,10 @@ HB.views = HB.views || {};
       value: U.currency(r.fireNumber, { digits: 0 }),
       hero: true,
       sub: U.currency(r.annualSpend, { digits: 0 }) + ' Jahresausgaben bei ' +
-        U.num(r.swr * 100, 1) + ' % Entnahme'
+        U.num(r.swr * 100, 1) + ' % Entnahme' +
+        (r.taxSurcharge > 1
+          ? ' · davon ' + U.currency(r.taxSurcharge, { digits: 0 }) + ' Puffer für die KESt auf die Entnahme'
+          : '')
     }));
 
     grid.appendChild(ui.stat({
@@ -220,10 +246,14 @@ HB.views = HB.views || {};
         : 'manuell gesetzt (automatisch wären ' + U.currency(r.autoContribution, { digits: 0 }) + ')'
     }));
 
+    var taxed = r.monthlyWithdrawal - r.monthlyWithdrawalNet;
     grid.appendChild(ui.stat({
       label: 'Entnahme im Ruhestand',
-      value: U.currency(r.monthlyWithdrawal, { digits: 0 }) + ' / Monat',
-      sub: 'heutige Kaufkraft, bei einer Realrendite von ' + U.num(r.realAnnual * 100, 1) + ' %'
+      value: U.currency(r.monthlyWithdrawalNet, { digits: 0 }) + ' / Monat',
+      sub: taxed > 1
+        ? 'netto, nach ' + U.currency(taxed, { digits: 0 }) + ' KESt auf ' +
+          U.pct(r.gainShareAtFire, 0) + ' stille Reserven'
+        : 'heutige Kaufkraft, bei einer Realrendite von ' + U.num(r.realAnnual * 100, 1) + ' %'
     }));
 
     return grid;
@@ -237,8 +267,10 @@ HB.views = HB.views || {};
         values: r.series.map(function (p) { return p.assets; }), area: true
       },
       {
+        // Das Ziel wandert mit den stillen Reserven: je mehr unversteuerter
+        // Gewinn im Depot steckt, desto mehr Depot braucht dieselbe Entnahme.
         name: 'FIRE-Zahl', color: U.token('--series-4'), dashed: true,
-        values: r.series.map(function () { return r.fireNumber; })
+        values: r.series.map(function (p) { return p.target; })
       }
     ];
 
@@ -263,7 +295,7 @@ HB.views = HB.views || {};
           [
             { name: 'Vermögen (real)', values: r.series.map(function (p) { return p.assets; }) },
             { name: 'Eingezahlt', values: r.series.map(function (p) { return p.contributed; }) },
-            { name: 'FIRE-Zahl', values: r.series.map(function () { return r.fireNumber; }) }
+            { name: 'FIRE-Zahl', values: r.series.map(function (p) { return p.target; }) }
           ],
           function (v) { return U.currency(v, { digits: 0 }); }
         );
@@ -305,16 +337,27 @@ HB.views = HB.views || {};
         line('Jahresausgaben heute', U.currency(r.annualSpendToday, { digits: 0 })),
         line('Angesetzte Jahresausgaben im Ruhestand', U.currency(r.annualSpend, { digits: 0 })),
         line('Entnahmerate', U.num(r.swr * 100, 2) + ' %'),
-        line('FIRE-Zahl = Jahresausgaben ÷ Entnahmerate', U.currency(r.fireNumber, { digits: 0 })),
+        line('FIRE-Zahl vor Steuer = Jahresausgaben ÷ Entnahmerate', U.currency(r.fireNumberGross, { digits: 0 })),
+        r.tax.enabled ? line('KESt-Satz' + (r.tax.isPortfolioRate ? ' (gewichtet aus dem Portfolio)' : ''),
+          U.num(r.tax.ratePct, 2) + ' %') : null,
+        r.tax.enabled ? line('Stille Reserven beim Erreichen des Ziels', U.pct(r.gainShareAtFire, 1)) : null,
+        r.tax.enabled ? line('FIRE-Zahl nach Steuer = Jahresausgaben ÷ (Entnahmerate × (1 − KESt × Gewinnanteil))',
+          U.currency(r.fireNumber, { digits: 0 })) : null,
         line('Angesetzte Rendite' + (r.returnIsAuto ? ' (aus dem Portfolio)' : ''), U.num(r.returnPct, 2) + ' %'),
+        r.tax.enabled ? line('Rendite nach laufender KESt (' + U.num(r.tax.ongoingSharePct, 0) + ' % des Ertrags)',
+          U.num(r.netReturnPct, 2) + ' %') : null,
         line('Realrendite = (1 + Rendite) ÷ (1 + Inflation) − 1', U.num(r.realAnnual * 100, 2) + ' %'),
+        r.tax.enabled ? line('Realrendite nach laufender KESt', U.num(r.netRealAnnual * 100, 2) + ' %') : null,
         line('Startvermögen' + (r.startAssetsIsAuto ? ' (Investments + sonstiges)' : ''),
           U.currency(r.startAssets, { digits: 0 })),
         line('Bis zum Ziel eingezahlt', r.reached ? U.currency(r.contributedTotal, { digits: 0 }) : '—'),
+        r.tax.enabled ? line('Laufend gezahlte KESt bis dahin', U.currency(r.taxTotal, { digits: 0 })) : null,
+        r.tax.enabled ? line('Noch aufgeschobene KESt im Depot', U.currency(r.deferredTax, { digits: 0 })) : null,
         U.el('div', { class: 'callout', style: { marginTop: '12px' } }, [
           'Die Rechnung unterstellt eine konstante Realrendite. Reale Märkte schwanken; ' +
           'gerade die ersten Ruhestandsjahre entscheiden über den Erfolg der Entnahme. ' +
-          'Behandle das Ergebnis als Größenordnung, nicht als Zusage.'
+          'Posten und Buchungen gelten als bereits versteuert — die KESt trifft nur die Erträge ' +
+          'der Investments. Behandle das Ergebnis als Größenordnung, nicht als Zusage.'
         ])
       ])
     });
