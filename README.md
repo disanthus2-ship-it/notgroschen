@@ -178,6 +178,13 @@ Die Projektion vergleicht das Ergebnis über bis zu 20 Jahre mit der
 unveränderten Basis: Vermögensentwicklung, Monatssaldo, Jahresübersicht,
 tiefster Vermögensstand und die Anzahl der Monate mit Deckungslücke.
 
+Dabei steigen die Preise mit: Posten ohne eigene Progression wachsen mit der
+Inflation aus den Einstellungen, Kreditraten bleiben nominell fest. Ein
+Umschalter zeigt die Reihe wahlweise **nominal** oder **in heutiger Kaufkraft** —
+Letzteres ist die Vorgabe, weil nur so über zwanzig Jahre vergleichbar bleibt,
+was 5.000 € Ausgaben bedeuten. Der Kontoverlauf der Liquiditätsvorschau bleibt
+immer nominal; er soll sich mit dem echten Konto vergleichen lassen.
+
 ### FIRE-Kalkulator
 
 Gerechnet wird durchgehend **in heutiger Kaufkraft**: die Nominalrendite wird um
@@ -316,6 +323,9 @@ Sparquote              = (Monatssaldo + Sparbeiträge) ÷ Einnahmen
 
 Gesamtvermögen         = sonstiges Vermögen + Σ Investments
 Portfoliorendite       = Σ (Wert × Renditeerwartung) ÷ Σ Wert
+Preis(Monat)           = Betrag × (1 + Inflation)^(Monate/12)
+                         (Posten ohne eigene Progression, keine Kreditrate)
+Heutige Kaufkraft      = Nominalbetrag ÷ (1 + Inflation)^(Monate/12)
 KESt-Satz              = Σ (Wert × Steuersatz) ÷ Σ Wert
 Rendite nach KESt      = Rendite × (1 − KESt-Satz × laufend versteuerter Anteil)
 ```

@@ -155,6 +155,15 @@ HB.views = HB.views || {};
       }
     });
 
+    var inflationIn = ui.numInput(state.settings.inflationPct, {
+      step: '0.1',
+      onchange: function (e) {
+        var v = U.clamp(U.parseNum(e.target.value), -10, 100);
+        S.update(function (st) { st.settings.inflationPct = v; }, 'settings');
+        HB.app.repaint();
+      }
+    });
+
     var emergencyIn = ui.numInput(state.settings.emergencyMonths, {
       step: '1', min: '1',
       onchange: function (e) {
@@ -168,6 +177,9 @@ HB.views = HB.views || {};
       body: U.el('div', {}, [
         ui.field('Design', themeSel, 'Das helle Design ist die Vorgabe; „Wie das System“ folgt der Einstellung des Betriebssystems.'),
         ui.field('Startmonat der Planung', startIn, 'Ausgangspunkt für Projektion und FIRE-Rechnung'),
+        ui.field('Inflation (% p. a.)', inflationIn,
+          'Gilt für Projektion und FIRE-Rechnung. Posten ohne eigene Progression steigen damit; ' +
+          'Kreditraten bleiben nominell fest.'),
         ui.field('Ziel für den Notgroschen (Monate)', emergencyIn,
           'Wie viele Monatsausgaben die sofort verfügbaren Mittel abdecken sollen'),
         ui.field('Kategorien', U.el('button', {

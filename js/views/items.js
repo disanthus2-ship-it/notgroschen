@@ -237,6 +237,13 @@ HB.views = HB.views || {};
                   (it.growth.until ? ', letzte ' + U.monthLabel(it.growth.until) : ''),
                 text: C.growthLabel(it.growth)
               })
+            : null,
+          !it.growth && it.inflationLinked === false
+            ? U.el('span', {
+                class: 'badge', style: { marginLeft: '6px' },
+                title: 'Steigt nicht mit der Inflation — nominell fest',
+                text: 'nominell fest'
+              })
             : null
         ]),
         it.note ? U.el('div', { class: 'small muted', text: it.note }) : null
@@ -275,7 +282,8 @@ HB.views = HB.views || {};
     var draft = it ? U.deepClone(it) : {
       id: U.uid('itm'), label: '', amount: null, interval: 'monthly',
       kind: 'expense', owner: 'household', categoryId: 'cat_other',
-      start: null, end: null, dueMonth: null, growth: null, active: true, note: ''
+      start: null, end: null, dueMonth: null, growth: null,
+      inflationLinked: null, active: true, note: ''
     };
 
     var labelIn = ui.textInput(draft.label, { placeholder: 'z. B. Miete' });
@@ -356,6 +364,15 @@ HB.views = HB.views || {};
 
     /* --- Progression --- */
 
+    // Ohne eigene Progression steigt ein Posten mit der Inflation — außer er
+    // liegt nominell fest, wie die Rate eines Kredits.
+    var infOpts = C.inflationOpts(S.state, {});
+    var inflationDefault = C.followsInflation(infOpts, { id: draft.id, growth: null });
+    var inflationIn = U.el('input', {
+      type: 'checkbox',
+      checked: draft.inflationLinked == null ? inflationDefault : !!draft.inflationLinked
+    });
+
     var g = draft.growth;
     var growthTitle = U.el('div', { class: 'section-title' });
     var growthWrap = U.el('div', {});
@@ -391,7 +408,18 @@ HB.views = HB.views || {};
           : 'Regelmäßige Anpassung, etwa eine indexierte Miete'));
 
       if (!rhythm) {
-        growthPreview.textContent = 'Der Betrag bleibt über den gesamten Zeitraum unverändert.';
+        growthWrap.appendChild(ui.field('',
+          U.el('label', { class: 'checkline' }, [
+            inflationIn,
+            U.el('span', { text: 'steigt mit der Inflation (' + U.num(C.inflationPct(S.state), 1) + ' % p. a.)' })
+          ]),
+          inflationDefault
+            ? 'Vorgabe für Posten ohne eigene Progression'
+            : 'Vorgabe für diesen Posten ist nein — er ist die Rate eines Kredits'));
+        growthPreview.textContent = inflationIn.checked
+          ? 'Der Betrag bleibt in heutiger Kaufkraft gleich und steigt in der Projektion mit der Inflation.'
+          : 'Der Betrag bleibt nominell unverändert — in heutiger Kaufkraft wird er also von Jahr zu Jahr kleiner.';
+        inflationIn.onchange = paintGrowth;
         return;
       }
 
@@ -483,6 +511,10 @@ HB.views = HB.views || {};
             draft.end = endIn.value || null;
             draft.dueMonth = Math.round(C.intervalMonths(intervalSel.value)) > 1 ? dueValue : null;
             draft.growth = currentGrowth();
+            // Mit eigener Progression ist die Frage beantwortet; sonst nur
+            // speichern, was von der Vorgabe abweicht.
+            draft.inflationLinked = rhythm ? null
+              : (inflationIn.checked === inflationDefault ? null : inflationIn.checked);
             if (rhythm && !draft.growth) {
               ui.toast('Für die Progression fehlen Steigerung, Abstand oder erster Monat.', 'err');
               return;

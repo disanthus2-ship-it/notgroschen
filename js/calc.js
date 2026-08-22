@@ -197,6 +197,62 @@ window.HB = window.HB || {};
    * opts: { plans: [], includeTransactions: bool, state }
    * Ein Fluss ist { id, itemId, label, kind, owner, categoryId, amount, source }.
    */
+  /* --- Inflation ----------------------------------------------------------- */
+
+  /**
+   * Erwartete Geldentwertung p. a. Eine einzige Annahme für Projektion und
+   * FIRE-Rechnung — beide sollen dieselbe Zukunft beschreiben.
+   */
+  function inflationPct(state) {
+    var v = state.settings ? state.settings.inflationPct : null;
+    return v == null || v === '' ? 2 : Number(v) || 0;
+  }
+
+  /**
+   * Vorbereitete Inflationsannahme für eine Reihe. `fixed` sammelt die Posten,
+   * die nominell festliegen: die Rate eines Kredits steigt nicht, nur weil das
+   * Leben teurer wird.
+   */
+  function inflationOpts(state, opts) {
+    opts = opts || {};
+    var pct = opts.inflationPct == null ? inflationPct(state) : Number(opts.inflationPct) || 0;
+    var fixed = {};
+    (state.debts || []).forEach(function (d) {
+      if (d.linkedItemId) fixed[d.linkedItemId] = true;
+    });
+    return {
+      pct: pct,
+      from: opts.from || state.settings.startMonth || U.monthKey(),
+      fixed: fixed
+    };
+  }
+
+  /**
+   * Steigt dieser Posten mit der Inflation?
+   * Wer eine eigene Progression gesetzt hat, hat die Frage schon beantwortet —
+   * dann gilt allein sie. `inflationLinked` überschreibt beides.
+   */
+  function followsInflation(inf, item) {
+    if (item.inflationLinked != null) return !!item.inflationLinked;
+    if (item.growth) return false;
+    return !inf.fixed[item.id];
+  }
+
+  /** Preisfaktor eines Postens im Monat `key`, bezogen auf den Reihenstart. */
+  function inflationFactor(inf, item, key) {
+    if (!inf || !inf.pct) return 1;
+    if (!followsInflation(inf, item)) return 1;
+    var months = U.monthDiff(inf.from, key);
+    if (!(months > 0)) return 1;
+    return Math.pow(1 + inf.pct / 100, months / 12);
+  }
+
+  /** Kaufkraftfaktor, um eine nominelle Reihe in heutiges Geld umzurechnen. */
+  function deflator(inf, months) {
+    if (!inf || !inf.pct || !(months > 0)) return 1;
+    return 1 / Math.pow(1 + inf.pct / 100, months / 12);
+  }
+
   function monthFlows(state, key, opts) {
     opts = opts || {};
     var flows = [];
@@ -210,6 +266,9 @@ window.HB = window.HB || {};
       if (!U.inRange(key, it.start, it.end)) return;
       if (payoff[it.id] && U.monthIndex(key) > U.monthIndex(payoff[it.id])) return;
       var amt = opts.cash ? cashAt(it, key) : perMonthAt(it, key);
+      // Einzelbuchungen und Szenario-Ereignisse bleiben nominell: das sind
+      // Beträge, die jemand für einen bestimmten Monat so hingeschrieben hat.
+      if (opts.inflation) amt = amt * inflationFactor(opts.inflation, it, key);
       if (!amt) return;
       flows.push({
         id: it.id, itemId: it.id, label: it.label, kind: it.kind,
@@ -837,7 +896,11 @@ window.HB = window.HB || {};
    * ab und schreibt den Einstand mit, damit die aufgeschobene Steuer sichtbar
    * bleibt. Posten und Buchungen sind bereits versteuert und bleiben unberührt.
    *
-   * opts: { from, months, plans, startAssets, returnPct, includeTransactions }
+   * Gerechnet wird immer nominell — nur so stimmen Zinsen, Tilgung und KESt.
+   * `opts.real` rechnet die fertige Reihe anschließend in heutige Kaufkraft um.
+   *
+   * opts: { from, months, plans, startAssets, returnPct, real, inflationPct,
+   *         includeTransactions }
    */
   function project(state, opts) {
     opts = opts || {};
@@ -851,6 +914,9 @@ window.HB = window.HB || {};
     var basis = opts.startBasis != null ? opts.startBasis : startBasisFor(state, assets);
     var taxTotal = 0;
 
+    var inf = inflationOpts(state, { from: from, inflationPct: opts.inflationPct });
+    var real = !!opts.real && !!inf.pct;
+
     // Einmal je Projektion statt einmal je Monat berechnen. Anker ist der
     // Startmonat der Planung, damit die Restschuld überall dieselbe bleibt.
     var payoff = debtPayoffMap(state);
@@ -863,13 +929,14 @@ window.HB = window.HB || {};
 
     for (var i = 0; i < months; i++) {
       var key = U.addMonths(from, i);
-      var s = summarize(state, monthFlows(state, key, {
+      var flows = monthFlows(state, key, {
         plans: plans,
         includeTransactions: !!opts.includeTransactions,
-        debtPayoff: payoff
-      }));
+        debtPayoff: payoff,
+        inflation: inf
+      });
+      var s = summarize(state, flows);
       var contribution = s.net + s.savingContrib;
-      cum += s.net;
 
       var step = growAssets(assets, basis, rMonthly, contribution, tax);
       assets = step.assets;
@@ -881,23 +948,35 @@ window.HB = window.HB || {};
         debt += debtBalanceAt(state, x.debt, key, x.sch);
       });
 
+      // In heutiger Kaufkraft: Geldflüsse liegen auf dem Preisniveau ihres
+      // Monatsanfangs, Bestände auf dem des Monatsendes. Auch die
+      // Zusammenfassung wird umgerechnet, damit nichts nominell Gebliebenes
+      // zwischen realen Zahlen steht.
+      var d = real ? deflator(inf, i) : 1;
+      var dStock = real ? deflator(inf, i + 1) : 1;
+      var view = d === 1 ? s : summarize(state, flows.map(function (f) {
+        return Object.assign({}, f, { amount: f.amount * d });
+      }));
+      cum += view.net;
+
       rows.push({
         key: key,
-        income: s.income,
-        expense: s.expense,
-        net: s.net,
-        savingContrib: s.savingContrib,
-        contribution: contribution,
+        income: view.income,
+        expense: view.expense,
+        net: view.net,
+        savingContrib: view.savingContrib,
+        contribution: contribution * d,
         cumulative: cum,
-        assets: assets,
-        basis: basis,
+        assets: assets * dStock,
+        basis: basis * dStock,
         gainShare: gainShare(assets, basis),
-        tax: step.tax,
-        taxCumulative: taxTotal,
-        deferredTax: Math.max(0, assets - basis) * tax.rate,
-        debt: debt,
-        netWorth: assets - debt,
-        summary: s
+        tax: step.tax * dStock,
+        taxCumulative: taxTotal * dStock,
+        deferredTax: Math.max(0, assets - basis) * tax.rate * dStock,
+        debt: debt * dStock,
+        netWorth: (assets - debt) * dStock,
+        real: real,
+        summary: view
       });
     }
     return rows;
@@ -918,6 +997,9 @@ window.HB = window.HB || {};
     var plans = opts.plans || [];
     var balance = opts.start != null ? opts.start : liquidAssets(state);
     var payoff = debtPayoffMap(state);
+    // Der Kontostand ist eine nominelle Größe — verglichen wird er mit dem
+    // echten Konto. Die Preise steigen trotzdem.
+    var inf = inflationOpts(state, { from: from, inflationPct: opts.inflationPct });
 
     var rows = [];
     for (var i = 0; i < months; i++) {
@@ -926,7 +1008,8 @@ window.HB = window.HB || {};
         plans: plans,
         includeTransactions: opts.includeTransactions !== false,
         cash: true,
-        debtPayoff: payoff
+        debtPayoff: payoff,
+        inflation: inf
       });
 
       var inflow = 0, outflow = 0;
@@ -996,7 +1079,11 @@ window.HB = window.HB || {};
     var returnPct = returnIsAuto ? autoReturn : Number(f.returnPct);
 
     var nominal = (Number(returnPct) || 0) / 100;
-    var infl = (Number(f.inflationPct) || 0) / 100;
+    // Die Inflation ist eine Haushaltsannahme, keine FIRE-Einstellung: dieselbe
+    // Zahl bereinigt auch die Projektion.
+    var inflPct = f.inflationPct == null || f.inflationPct === ''
+      ? inflationPct(state) : Number(f.inflationPct) || 0;
+    var infl = inflPct / 100;
     var realAnnual = (1 + nominal) / (1 + infl) - 1;
     var realMonthly = Math.pow(1 + realAnnual, 1 / 12) - 1;
     var growth = (Number(f.contributionGrowthPct) || 0) / 100;
@@ -1050,12 +1137,18 @@ window.HB = window.HB || {};
     }
 
     var years = reachedAt == null ? null : reachedAt / 12;
+    // Was am Zieltag auf dem Depotauszug stehen wird — dieselbe Kaufkraft,
+    // nur in dem Geld, das es dann gibt.
+    var fireNumberNominal = reachedAt == null
+      ? null : fireNumber * Math.pow(1 + infl, reachedAt / 12);
     var coastYears = Number(f.coastYears) || 20;
     var coastNumber = fireNumber / Math.pow(1 + netRealAnnual, coastYears);
 
     return {
       fireNumber: fireNumber,
       fireNumberGross: fireNumberGross,
+      fireNumberNominal: fireNumberNominal,
+      inflationPct: inflPct,
       taxSurcharge: fireNumber - fireNumberGross,
       tax: tax,
       taxTotal: taxTotal,
@@ -1270,6 +1363,11 @@ window.HB = window.HB || {};
     liquidAssets: liquidAssets,
     emergencyFund: emergencyFund,
     liquidityProjection: liquidityProjection,
+    inflationPct: inflationPct,
+    inflationOpts: inflationOpts,
+    inflationFactor: inflationFactor,
+    followsInflation: followsInflation,
+    deflator: deflator,
     monthFlows: monthFlows,
     applyPlans: applyPlans,
     summarize: summarize,

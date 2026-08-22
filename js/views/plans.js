@@ -12,7 +12,9 @@ HB.views = HB.views || {};
 
   var U = HB.util, C = HB.calc, S = HB.store, ui = HB.ui;
 
-  var view = { from: null, months: null, returnPct: null, active: {} };
+  // real = in heutiger Kaufkraft. Vorgabe, weil nur so über 20 Jahre hinweg
+  // vergleichbar bleibt, was 5.000 € Ausgaben bedeuten.
+  var view = { from: null, months: null, returnPct: null, real: true, active: {} };
 
   function selected(state) {
     return state.plans.filter(function (p) { return view.active[p.id]; });
@@ -44,11 +46,11 @@ HB.views = HB.views || {};
 
     var plans = selected(state);
     var base = C.project(state, {
-      from: view.from, months: view.months, plans: [],
+      from: view.from, months: view.months, plans: [], real: view.real,
       startAssets: C.totalAssets(state), returnPct: view.returnPct
     });
     var scen = plans.length ? C.project(state, {
-      from: view.from, months: view.months, plans: plans,
+      from: view.from, months: view.months, plans: plans, real: view.real,
       startAssets: C.totalAssets(state), returnPct: view.returnPct
     }) : null;
 
@@ -92,6 +94,14 @@ HB.views = HB.views || {};
       step: '0.5', style: 'width:110px',
       onchange: function (e) { view.returnPct = U.parseNum(e.target.value); HB.app.repaint(); }
     }), returnHint(state, pr)));
+
+    bar.appendChild(ui.field('Darstellung', ui.select([
+      { value: 'real', label: 'Heutige Kaufkraft' },
+      { value: 'nominal', label: 'Nominal' }
+    ], view.real ? 'real' : 'nominal', function (v) {
+      view.real = v === 'real';
+      HB.app.repaint();
+    }), moneyHint(state)));
 
     if (state.plans.length) {
       bar.appendChild(ui.field('Aktive Szenarien',
@@ -204,8 +214,17 @@ HB.views = HB.views || {};
       },
       foot: 'Der Bestand wird monatlich mit ' + U.num(view.returnPct, 1) +
             ' % p. a. verzinst; Saldo und Sparbeiträge fließen zusätzlich zu.' +
-            taxNote(S.state) + growthNote(S.state)
+            inflationNote(S.state) + taxNote(S.state) + growthNote(S.state)
     });
+  }
+
+  /** Erklärt, was die gewählte Darstellung mit den Beträgen macht. */
+  function moneyHint(state) {
+    var pct = C.inflationPct(state);
+    if (!pct) return 'ohne Inflation — unter „Daten" einstellbar';
+    return view.real
+      ? 'alle Beträge in Preisen von heute, bei ' + U.num(pct, 1) + ' % Inflation'
+      : 'in dem Geld, das es dann gibt, bei ' + U.num(pct, 1) + ' % Inflation';
   }
 
   /**
@@ -220,6 +239,17 @@ HB.views = HB.views || {};
     if (!tax.enabled) return base;
     return base + ' · ' + U.num(C.netReturnPct(state, view.returnPct || 0, tax), 2) +
       ' % nach laufender KESt';
+  }
+
+  /** Sagt, wie die Inflation in der Kurve steckt. */
+  function inflationNote(state) {
+    var pct = C.inflationPct(state);
+    if (!pct) return ' Ohne Inflationsannahme bleiben die Posten nominell stehen.';
+    var n = state.items.filter(function (it) {
+      return it.active !== false && C.followsInflation(C.inflationOpts(state, { from: view.from }), it);
+    }).length;
+    return ' ' + n + ' Posten steigen mit ' + U.num(pct, 1) + ' % Inflation p. a.; die Reihe ist ' +
+      (view.real ? 'anschließend in heutige Kaufkraft umgerechnet.' : 'nominal dargestellt.');
   }
 
   /** Nennt die Steuer, die in der Kurve schon abgezogen ist. */
@@ -319,12 +349,15 @@ HB.views = HB.views || {};
           function (v) { return U.currency(v, { digits: 0 }); }
         );
       },
-      foot: withoutDue.length
+      foot: (withoutDue.length
         ? withoutDue.length + ' Posten ohne Fälligkeitsmonat werden weiterhin gleichmäßig verteilt — ' +
           'trage die Fälligkeit ein, um den echten Verlauf zu sehen (' +
           withoutDue.slice(0, 3).map(function (i) { return i.label; }).join(', ') +
           (withoutDue.length > 3 ? ' …' : '') + ').'
-        : 'Alle nicht-monatlichen Posten haben einen Fälligkeitsmonat — der Verlauf ist vollständig.'
+        : 'Alle nicht-monatlichen Posten haben einen Fälligkeitsmonat — der Verlauf ist vollständig.')
+        + (C.inflationPct(S.state)
+            ? ' Der Kontostand bleibt immer nominal — er soll sich mit dem echten Konto vergleichen lassen.'
+            : '')
     });
 
     return U.el('div', {}, [stats, card, spikeTable(rows)]);

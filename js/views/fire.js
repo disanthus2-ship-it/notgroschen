@@ -151,8 +151,18 @@ HB.views = HB.views || {};
           : 'automatisch: ' + U.num(portfolio.weightedReturn, 2) + ' % aus dem Portfolio',
         'nominal, vor Inflation'),
       taxNote(state, f),
+      // Die Inflation gehört dem ganzen Haushalt, nicht nur dieser Maske —
+      // die Projektion rechnet mit derselben Zahl.
       ui.field('Inflation (% p. a.)',
-        ui.numInput(f.inflationPct, { step: '0.1', oninput: bind('inflationPct') })),
+        ui.numInput(state.settings.inflationPct, {
+          step: '0.1',
+          onchange: function (e) {
+            var v = U.clamp(U.parseNum(e.target.value), -10, 100);
+            S.update(function (st) { st.settings.inflationPct = v; }, 'settings');
+            onChange();
+          }
+        }),
+        'gilt auch für die Projektion'),
       ui.field('Sichere Entnahmerate (% p. a.)',
         ui.numInput(f.withdrawalPct, { step: '0.1', oninput: bind('withdrawalPct') }),
         '3,5 % gilt für lange Entnahmephasen als vorsichtig'),
@@ -346,11 +356,15 @@ HB.views = HB.views || {};
         line('Angesetzte Rendite' + (r.returnIsAuto ? ' (aus dem Portfolio)' : ''), U.num(r.returnPct, 2) + ' %'),
         r.tax.enabled ? line('Rendite nach laufender KESt (' + U.num(r.tax.ongoingSharePct, 0) + ' % des Ertrags)',
           U.num(r.netReturnPct, 2) + ' %') : null,
+        line('Inflation', U.num(r.inflationPct, 2) + ' %'),
         line('Realrendite = (1 + Rendite) ÷ (1 + Inflation) − 1', U.num(r.realAnnual * 100, 2) + ' %'),
         r.tax.enabled ? line('Realrendite nach laufender KESt', U.num(r.netRealAnnual * 100, 2) + ' %') : null,
         line('Startvermögen' + (r.startAssetsIsAuto ? ' (Investments + sonstiges)' : ''),
           U.currency(r.startAssets, { digits: 0 })),
         line('Bis zum Ziel eingezahlt', r.reached ? U.currency(r.contributedTotal, { digits: 0 }) : '—'),
+        r.fireNumberNominal != null && r.inflationPct
+          ? line('FIRE-Zahl in dem Geld, das es dann gibt', U.currency(r.fireNumberNominal, { digits: 0 }))
+          : null,
         r.tax.enabled ? line('Laufend gezahlte KESt bis dahin', U.currency(r.taxTotal, { digits: 0 })) : null,
         r.tax.enabled ? line('Noch aufgeschobene KESt im Depot', U.currency(r.deferredTax, { digits: 0 })) : null,
         U.el('div', { class: 'callout', style: { marginTop: '12px' } }, [

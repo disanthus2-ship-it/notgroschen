@@ -96,6 +96,7 @@ andere wird beim Import mit Vorgaben aufgefüllt.
 | `sankeyMode` | `"budget"` · `"direct"` | `"budget"` |
 | `sankeyMinShare` | Zahl in Prozent | `1.5` |
 | `emergencyMonths` | Zahl | `4` — Zielreichweite des Notgroschens |
+| `inflationPct` | Zahl (−10 bis 100) | `2` — gilt für Projektion **und** FIRE |
 | `tax` | Objekt, siehe unten | KESt-Annahmen für Projektion und FIRE |
 
 ```jsonc
@@ -179,6 +180,7 @@ Eine eigene Kategorie bekommt eine neue `id` (Konvention: `cat_<begriff>`) und
   "end": null,             // "JJJJ-MM" oder null (= unbefristet)
   "dueMonth": null,        // 1–12: Fälligkeitsmonat, oder null
   "growth": null,          // Progression, siehe unten — oder null
+  "inflationLinked": null, // null = Vorgabe, sonst true/false — siehe unten
   "active": true,
   "note": ""
 }
@@ -244,6 +246,25 @@ Zwei Dinge dazu:
 - **Ein unvollständiger Satz wird beim Import ersatzlos verworfen.** Fehlt
   `from`, ist `pct` gleich 0 oder `everyMonths` kleiner als 1, verschwindet die
   Progression stillschweigend. Entweder vollständig oder `null`.
+
+#### Inflation (`inflationLinked`)
+
+In Projektion und Liquiditätsvorschau steigen Posten mit `settings.inflationPct`
+— Lebensmittel werden teurer, ohne dass jemand das eintragen muss. Der Normalwert
+ist `null`; die App entscheidet dann so:
+
+| Posten | steigt mit der Inflation? |
+|---|---|
+| hat eine eigene `growth`-Progression | **nein** — die Progression ist die Antwort |
+| ist über `debts[].linkedItemId` die Rate eines Kredits | **nein** — nominell fest |
+| alles andere | **ja** |
+
+`true` oder `false` überschreiben das. `true` **zusätzlich** zu einer
+`growth`-Progression lässt beide Steigerungen zusammenwirken — das ist fast nie
+gewollt.
+
+Einzelbuchungen und einmalige Szenario-Ereignisse bleiben immer nominell: Das
+sind Beträge, die jemand für einen bestimmten Monat so hingeschrieben hat.
 
 ### `transactions[]` — Einzelbuchungen
 
@@ -435,6 +456,8 @@ nicht darauf.
 | `growth` unvollständig oder ohne gültiges `from` | wird zu `null`, die Progression ist weg |
 | `investments[].type` unbekannt | wird zu `"sonstiges"` — samt dessen KESt-Satz von 27,5 % |
 | `settings.tax.ongoingSharePct` / `defaultRatePct` außerhalb 0–100 | wird gekappt |
+| `settings.inflationPct` außerhalb −10 bis 100 | wird gekappt |
+| `fire.inflationPct` (altes Schema) | wandert nach `settings.inflationPct` und wird entfernt |
 | `debts[].type` unbekannt | wird zu `"other"` |
 | `dueMonth` außerhalb 1–12 | wird zu `null`, die Fälligkeit ist weg |
 | `linkedItemId` zeigt auf einen gelöschten Posten | wird auf `null` gesetzt |
@@ -594,6 +617,7 @@ Eine gültige Datei mit zwei Personen, einem Posten und einer Buchung:
     "splitMode": "income",
     "startMonth": "2026-08",
     "projectionMonths": 60,
+    "inflationPct": 2,
     "sankeyMode": "budget",
     "sankeyMinShare": 1.5,
     "tax": { "enabled": true, "ongoingSharePct": 30, "defaultRatePct": 27.5 }
@@ -675,6 +699,14 @@ Portfoliorendite  = Σ (currentValue × expectedReturnPct) ÷ Σ currentValue
 KESt-Satz         = Σ (currentValue × taxRatePct) ÷ Σ currentValue
                     (alle bewerteten Positionen, Vorgabe je Anlageart)
 ```
+
+### Inflation
+
+Projektion und FIRE-Rechnung teilen sich `settings.inflationPct`. Gerechnet wird
+immer nominell — nur so stimmen Zinsen, Tilgung und Kapitalertragsteuer; die
+Ansicht „heutige Kaufkraft" teilt die fertige Reihe anschließend durch
+`(1 + Inflation)^(Monate/12)`. Der Kontoverlauf der Liquiditätsvorschau bleibt
+immer nominell.
 
 ### Kapitalertragsteuer
 

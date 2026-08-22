@@ -43,7 +43,6 @@ window.HB = window.HB || {};
       monthlyContribution: null,   // null = automatisch aus dem Haushaltssaldo
       contributionGrowthPct: 0,    // jährliche Steigerung der Sparrate, real
       returnPct: null,             // null = automatisch: gewichtete Portfoliorendite
-      inflationPct: 2,             // erwartete Inflation p. a.
       withdrawalPct: 3.5,          // sichere Entnahmerate p. a.
       annualSpendOverride: null,   // null = Jahresausgaben aus dem Budget
       spendFactor: 100,            // Ausgabenniveau im Ruhestand in % von heute
@@ -66,6 +65,7 @@ window.HB = window.HB || {};
         sankeyMode: 'budget',      // 'budget' | 'direct'
         sankeyMinShare: 1.5,       // Anteil in %, darunter wird zu "Sonstige" gefaltet
         emergencyMonths: 4,        // Zielreichweite des Notgroschens in Monaten
+        inflationPct: 2,           // erwartete Geldentwertung p. a., für Projektion und FIRE
         // Kapitalertragsteuer. Posten und Buchungen sind bereits versteuert —
         // besteuert werden allein die Erträge der Investments.
         tax: {
@@ -317,6 +317,15 @@ window.HB = window.HB || {};
       fire: Object.assign(defaultFire(), raw.fire || {})
     };
 
+    // Bis Schema 1 stand die Inflation im fire-Block. Sie gilt jetzt für die
+    // ganze Planung — der alte Wert wird übernommen, nicht verworfen.
+    if ((!raw.settings || raw.settings.inflationPct == null) &&
+        raw.fire && raw.fire.inflationPct != null) {
+      s.settings.inflationPct = Number(raw.fire.inflationPct) || 0;
+    }
+    s.settings.inflationPct = U.clamp(Number(s.settings.inflationPct) || 0, -10, 100);
+    delete s.fire.inflationPct;
+
     // settings.tax ist verschachtelt: eine Datei, die nur `enabled` mitbringt,
     // darf die übrigen Vorgaben nicht mitlöschen.
     s.settings.tax = Object.assign({}, base.settings.tax, (raw.settings && raw.settings.tax) || {});
@@ -369,6 +378,9 @@ window.HB = window.HB || {};
         end: it.end || null,
         dueMonth: normalizeDueMonth(it.dueMonth),
         growth: normalizeGrowth(it.growth),
+        // null = Vorgabe: steigt mit der Inflation, außer der Posten hat eine
+        // eigene Progression oder ist die Rate eines Kredits.
+        inflationLinked: it.inflationLinked == null ? null : !!it.inflationLinked,
         active: it.active !== false,
         note: String(it.note || '')
       };

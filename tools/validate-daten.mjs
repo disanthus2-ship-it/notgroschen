@@ -127,6 +127,15 @@ function checkSettings(data) {
   if (s.startMonth != null && !RE_MONTH.test(s.startMonth)) {
     err('settings.startMonth', `${JSON.stringify(s.startMonth)} ist kein Monat im Format JJJJ-MM.`);
   }
+  if (s.inflationPct != null) {
+    if (!isNum(s.inflationPct)) {
+      err('settings.inflationPct', 'Muss eine Zahl sein.');
+    } else if (s.inflationPct < -10 || s.inflationPct > 100) {
+      err('settings.inflationPct', `${s.inflationPct} liegt außerhalb von −10 bis 100. Die App würde den Wert kappen.`);
+    } else if (s.inflationPct > 10) {
+      warn('settings.inflationPct', `${s.inflationPct} % Inflation p. a. ist sehr hoch — über 20 Jahre vervielfacht das jeden Betrag.`);
+    }
+  }
 
   if (s.tax != null) {
     if (!isObj(s.tax)) {
@@ -282,6 +291,14 @@ function checkItems(data, personIds, cats) {
       warn(at, '"active" sollte true oder false sein; alles außer false gilt der App als aktiv.');
     }
     checkGrowth(at, it.growth);
+
+    if (it.inflationLinked != null) {
+      if (typeof it.inflationLinked !== 'boolean') {
+        err(at, '"inflationLinked" muss null, true oder false sein. null heißt: Vorgabe der App.');
+      } else if (it.inflationLinked && isObj(it.growth)) {
+        warn(at, '"inflationLinked": true bei einem Posten mit eigener Progression — beide Steigerungen wirken dann zusammen.');
+      }
+    }
 
     if (it.dueMonth != null) {
       if (!Number.isInteger(it.dueMonth) || it.dueMonth < 1 || it.dueMonth > 12) {
