@@ -29,6 +29,9 @@ HB.views = HB.views || {};
       appearanceCard(state)
     ]));
 
+    root.appendChild(U.el('div', { class: 'section-title', text: 'Berichte' }));
+    root.appendChild(reportCard(state));
+
     root.appendChild(U.el('div', { class: 'section-title', text: 'Kapitalertragsteuer' }));
     root.appendChild(taxCard(state));
 
@@ -189,6 +192,51 @@ HB.views = HB.views || {};
         U.el('div', { class: 'callout', style: { marginTop: '4px' } }, [
           'Auto-Speicherung ist aktiv: Jede Änderung landet sofort im lokalen Speicher dieses Browsers. ' +
           'Für Backups, Gerätewechsel oder das Teilen mit der zweiten Person ist trotzdem die Datei der richtige Weg.'
+        ])
+      ])
+    });
+  }
+
+  /* --- Berichte ------------------------------------------------------------ */
+
+  /**
+   * Gedruckt wird über den Browser: Im Druckdialog liefert „Als PDF sichern"
+   * eine Datei. Das erspart eine PDF-Bibliothek und liefert ein Ergebnis, das
+   * auf jedem Gerät gleich aussieht.
+   */
+  function reportCard(state) {
+    var monthIn = ui.monthInput(U.monthKey(), {});
+    var thisYear = U.monthKey().slice(0, 4);
+    var years = [];
+    for (var y = Number(thisYear) + 1; y >= Number(thisYear) - 4; y--) years.push(String(y));
+    var yearSel = ui.select(years.map(function (v) { return { value: v, label: v }; }), thisYear, null);
+
+    function plans() { return S.activePlans(); }
+
+    return ui.card({
+      title: 'Monats- und Jahresbericht',
+      sub: 'Zum Ausdrucken oder als PDF sichern',
+      body: U.el('div', {}, [
+        U.el('div', { class: 'filterbar', style: { marginBottom: '4px' } }, [
+          ui.field('Monat', monthIn),
+          ui.field('', U.el('button', {
+            class: 'btn btn-primary', text: 'Monatsbericht',
+            onclick: function () {
+              HB.report.print({ kind: 'month', key: monthIn.value || U.monthKey(), plans: plans() });
+            }
+          })),
+          ui.field('Jahr', yearSel),
+          ui.field('', U.el('button', {
+            class: 'btn btn-primary', text: 'Jahresbericht',
+            onclick: function () {
+              HB.report.print({ kind: 'year', key: yearSel.value, plans: plans() });
+            }
+          }))
+        ]),
+        U.el('div', { class: 'callout' }, [
+          'Der Bericht öffnet den Druckdialog des Browsers. Dort „Als PDF sichern" wählen — ' +
+          'so entsteht eine Datei zum Ablegen oder Weitergeben, ohne dass Daten das Gerät verlassen. ' +
+          'Aktive Szenarien sind eingerechnet, sofern welche eingeschaltet sind.'
         ])
       ])
     });

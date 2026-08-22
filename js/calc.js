@@ -545,7 +545,7 @@ window.HB = window.HB || {};
 
     for (var i = 0; i < maxMonths && balance > 0; i++) {
       var key = U.addMonths(from, i);
-      var payment = debtPayment(state, debt, key);
+      var payment = debtPayment(state, debt, key) + (Number(opts.extraMonthly) || 0);
       var interest = balance * rate;
 
       if (payment <= interest + 1e-9) { neverPaysOff = true; break; }
@@ -884,6 +884,146 @@ window.HB = window.HB || {};
       gap: burn * target - available,
       ratio: burn > 0 ? (available / burn) / target : 0
     };
+  }
+
+  /* --- Kategoriebudgets ---------------------------------------------------- */
+
+  /**
+   * Auslastung je Kategorie mit hinterlegtem Monatsbudget. `used` kommt aus der
+   * fertigen Monatsbilanz, enthält also Buchungen und Szenarien genauso wie die
+   * wiederkehrenden Posten — sonst zeigte die Ampel etwas anderes als die
+   * Tabelle darüber.
+   */
+  function categoryBudgets(state, summary) {
+    var out = [];
+    (state.categories || []).forEach(function (c) {
+      if (c.budget == null || !(Number(c.budget) > 0)) return;
+      var map = c.kind === 'income' ? summary.incomeByCategory : summary.expenseByCategory;
+      var used = (map && map[c.id]) || 0;
+      var budget = Number(c.budget);
+      out.push({
+        id: c.id, name: c.name, kind: c.kind,
+        budget: budget,
+        used: used,
+        left: budget - used,
+        ratio: used / budget,
+        over: used > budget
+      });
+    });
+    return out.sort(function (a, b) { return b.ratio - a.ratio; });
+  }
+
+  /** Kurzfassung für Kennzahlen: wie viele Budgets stehen, wie viele reißen. */
+  function budgetSummary(state, summary) {
+    var list = categoryBudgets(state, summary);
+    var over = list.filter(function (b) { return b.over; });
+    return {
+      list: list,
+      count: list.length,
+      over: over,
+      overCount: over.length,
+      // Nur Ausgabenbudgets summieren — ein Einnahmenziel ist keine Obergrenze.
+      total: U.sum(list.filter(function (b) { return b.kind === 'expense'; }), function (b) { return b.budget; }),
+      used: U.sum(list.filter(function (b) { return b.kind === 'expense'; }), function (b) { return b.used; })
+    };
+  }
+
+  /* --- Sondertilgung gegen Investieren ------------------------------------- */
+
+  /**
+   * Was bringt ein freier Betrag mehr: in den Kredit oder ins Depot?
+   *
+   * Verglichen wird das Nettovermögen an einem gemeinsamen Stichtag — dem Monat,
+   * in dem der Kredit ohne Sondertilgung abbezahlt wäre. Nur so ist der
+   * Vergleich fair: Die Sondertilgung macht den Kredit früher schuldenfrei,
+   * danach fließt die frei gewordene Rate ins Depot.
+   *
+   * opts: { amount, monthly, returnPct, horizonMonths }
+   */
+  function prepaymentCompare(state, debt, opts) {
+    opts = opts || {};
+    var amount = Math.max(0, Number(opts.amount) || 0);
+    var monthly = Math.max(0, Number(opts.monthly) || 0);
+    var from = state.settings.startMonth || U.monthKey();
+
+    var tax = taxSettings(state);
+    var grossPct = opts.returnPct == null
+      ? (portfolioReturn(state) == null ? 5 : portfolioReturn(state))
+      : Number(opts.returnPct) || 0;
+    var netPct = netReturnPct(state, grossPct, tax);
+    var rNet = Math.pow(1 + netPct / 100, 1 / 12) - 1;
+
+    var basePlan = debtSchedule(state, debt, { from: from });
+    var fastPlan = debtSchedule(state, Object.assign({}, debt, {
+      balance: Math.max(0, (Number(debt.balance) || 0) - amount)
+    }), { from: from, extraMonthly: monthly });
+
+    // Ohne Tilgungsplan (Rate deckt nicht einmal die Zinsen) ist nichts zu rechnen.
+    if (basePlan.months == null || fastPlan.months == null) {
+      return { ok: false, neverPaysOff: true, basePlan: basePlan, fastPlan: fastPlan };
+    }
+
+    // Stichtag ist der Monat, in dem der Kredit ohne Sondertilgung getilgt wäre.
+    // `months` zählt die letzte Rate mit, frei ist die Rate erst im Monat danach.
+    var freeA = fastPlan.months + 1;
+    var freeB = basePlan.months + 1;
+    var horizon = opts.horizonMonths || freeB;
+    var payment = debtPayment(state, debt, from);
+
+    // Weg A — tilgen: Der Kredit ist früher weg. Ab dann wandern Rate und
+    // monatlicher Zusatzbetrag ins Depot.
+    var a = 0, contribA = 0;
+    for (var i = 0; i < horizon; i++) {
+      a = a * (1 + rNet);
+      if (i >= freeA) { a += payment + monthly; contribA += payment + monthly; }
+    }
+    var debtA = balanceAfter(fastPlan, horizon);
+
+    // Weg B — anlegen: Der Betrag geht sofort ins Depot, der Kredit läuft
+    // unverändert weiter; erst danach wird auch hier die Rate frei.
+    var b = amount, contribB = amount;
+    for (var j = 0; j < horizon; j++) {
+      b = b * (1 + rNet);
+      var add = j >= freeB ? payment + monthly : monthly;
+      b += add;
+      contribB += add;
+    }
+    var debtB = balanceAfter(basePlan, horizon);
+
+    var deferredA = Math.max(0, a - contribA) * tax.rate * (1 - tax.ongoingShare);
+    var deferredB = Math.max(0, b - contribB) * tax.rate * (1 - tax.ongoingShare);
+
+    var netA = a - debtA - deferredA;
+    var netB = b - debtB - deferredB;
+
+    return {
+      ok: true,
+      amount: amount,
+      monthly: monthly,
+      horizonMonths: horizon,
+      horizonKey: U.addMonths(from, horizon),
+      payment: payment,
+      grossPct: grossPct,
+      netPct: netPct,
+      interestPct: Number(debt.interestPct) || 0,
+      tax: tax,
+      basePlan: basePlan,
+      fastPlan: fastPlan,
+      monthsSaved: basePlan.months - fastPlan.months,
+      freeFrom: U.addMonths(from, freeA),
+      interestSaved: basePlan.totalInterest - fastPlan.totalInterest,
+      repay: { assets: a, debt: debtA, deferredTax: deferredA, net: netA },
+      invest: { assets: b, debt: debtB, deferredTax: deferredB, net: netB },
+      diff: netA - netB,
+      winner: netA >= netB ? 'repay' : 'invest'
+    };
+  }
+
+  /** Restschuld eines fertigen Tilgungsplans nach n Monaten. */
+  function balanceAfter(plan, months) {
+    if (!plan.series.length) return 0;
+    var idx = Math.min(months, plan.series.length - 1);
+    return plan.series[idx].balance;
   }
 
   /* --- Projektion --------------------------------------------------------- */
@@ -1358,6 +1498,9 @@ window.HB = window.HB || {};
     debtBalanceAt: debtBalanceAt,
     debtPayoffMap: debtPayoffMap,
     debtSummary: debtSummary,
+    prepaymentCompare: prepaymentCompare,
+    categoryBudgets: categoryBudgets,
+    budgetSummary: budgetSummary,
     totalDebt: totalDebt,
     netWorth: netWorth,
     liquidAssets: liquidAssets,

@@ -108,6 +108,30 @@ Investment ist die Vermögensseite. Im Formular lässt sich der Posten in einem
 Zug miterzeugen. So kann eine Sparrate nicht zugleich als Ausgabe und als
 Vermögenszuwachs gezählt werden.
 
+### Budgets
+
+Drei Ebenen, die unabhängig voneinander wirken:
+
+* **Das Haushaltsbudget** deckelt die gemeinsamen Ausgaben.
+* **Ein persönliches Budget** je Person deckelt deren eigene Ausgaben.
+* **Ein Monatsbudget je Kategorie** — in der Kategorienverwaltung hinterlegt.
+  Die Übersicht zeigt für jede Kategorie Auslastung und Ampel, ab 85 % gelb,
+  über 100 % rot; die Fußzeile nennt die gerissenen Budgets beim Namen.
+
+Verglichen wird immer gegen die fertige Monatsbilanz, also inklusive
+Einzelbuchungen und aktiver Szenarien — nicht bloß gegen die Postenliste.
+
+### Berichte
+
+Ein **Monats-** und ein **Jahresbericht** zum Ausdrucken: Kennzahlen, Aufteilung
+nach Person, Kategorien mit Budgetabweichung, die Buchungen des Monats
+beziehungsweise der Monatsverlauf des Jahres, dazu der Vermögensstand. Zu finden
+unter *Daten → Berichte*, für den laufenden Monat auch direkt auf der Übersicht.
+
+Ein PDF entsteht dabei ohne Bibliothek: Der Bericht öffnet den Druckdialog des
+Browsers, dort führt „Als PDF sichern“ zur Datei. Auch dabei verlassen die Daten
+das Gerät nicht.
+
 ### Kredite und Nettovermögen
 
 Die Gegenseite der Investments: Restschuld, Zinssatz und Tilgungsverlauf je
@@ -120,6 +144,20 @@ gewöhnlicher Posten, der Kredit verweist nur darauf. Ist er getilgt, **lässt d
 Projektion die Rate automatisch auslaufen** — man muss kein Enddatum pflegen.
 Deckt eine Rate die Zinsen nicht, sagt die App das, statt eine Laufzeit zu
 erfinden.
+
+### Sondertilgung oder investieren?
+
+In der Kreditansicht hinter dem Schalter **Erweitert**: Was bringt ein freier
+Betrag mehr — in den Kredit oder ins Depot? Die Frage lässt sich nicht am
+Zinssatz allein beantworten, denn der Kredit amortisiert ohnehin, die
+Depotrendite kostet KESt, und nach der Tilgung wird die Rate frei.
+
+Verglichen wird deshalb das Nettovermögen an einem gemeinsamen Stichtag — dem
+Monat, in dem der Kredit ohne Sondertilgung abbezahlt wäre. Beide Wege kosten
+bis dahin exakt dasselbe Geld; was zählt, ist der Rest.
+
+Aufwendigere Rechner sitzen generell hinter einem **Erweitert**-Schalter, damit
+die Alltagsansicht schlank bleibt.
 
 ### Notgroschen
 
@@ -289,7 +327,7 @@ weiterhin keinerlei Node-Abhängigkeit.
 ```
 index.html            Grundgerüst, Skript-Reihenfolge
 css/
-  tokens.css          Design-Tokens für Hell und Dunkel
+  tokens.css          Design-Tokens für Hell, Dunkel und Druck
   app.css             Layout und Komponenten
 js/
   util.js             Formatierung, Monatsarithmetik, DOM-Helfer
@@ -298,7 +336,9 @@ js/
                       Szenarien, Projektion, FIRE, Sankey-Graph
   sankey.js           Layout-Algorithmus und SVG-Rendering
   charts.js           Linien- und Säulendiagramme
-  components.js       Karten, Kennzahlen, Meter, Modal, Formularfelder
+  components.js       Karten, Kennzahlen, Meter, Modal, Formularfelder,
+                      Erweitert-Schalter
+  report.js           Monats- und Jahresbericht für den Druckdialog
   views/              Die neun Ansichten
   app.js              Router, Theme, Datei-Ein-/Ausgabe
 ```
@@ -326,6 +366,7 @@ Portfoliorendite       = Σ (Wert × Renditeerwartung) ÷ Σ Wert
 Preis(Monat)           = Betrag × (1 + Inflation)^(Monate/12)
                          (Posten ohne eigene Progression, keine Kreditrate)
 Heutige Kaufkraft      = Nominalbetrag ÷ (1 + Inflation)^(Monate/12)
+Budgetauslastung       = Monatssumme(Kategorie) ÷ categories[].budget
 KESt-Satz              = Σ (Wert × Steuersatz) ÷ Σ Wert
 Rendite nach KESt      = Rendite × (1 − KESt-Satz × laufend versteuerter Anteil)
 ```

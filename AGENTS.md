@@ -143,9 +143,20 @@ Fasse `settings` bei einem Datenimport nicht an — das sind Anzeigevorlieben.
   "name": "Lebensmittel",
   "kind": "expense",       // "income" oder "expense"
   "system": true,          // true = mitgeliefert, in der App nicht löschbar
-  "saving": true           // optional: zählt als Vermögensaufbau, nicht als Konsum
+  "saving": true,          // optional: zählt als Vermögensaufbau, nicht als Konsum
+  "budget": 1000           // optional: Monatsbudget in Euro, oder null
 }
 ```
+
+`budget` ist eine Obergrenze für die Monatssumme dieser Kategorie. Die Übersicht
+zeigt daraus eine Ampel (ab 85 % gelb, über 100 % rot), der Monatsbericht die
+Abweichung. Ein Wert ≤ 0 zählt der App als „kein Budget". Bei einem reinen
+Datenimport bleibt das Feld unangetastet — ein Budget ist eine Entscheidung des
+Haushalts, keine Zahl aus dem Kontoauszug.
+
+Verglichen wird gegen die **fertige Monatsbilanz**: wiederkehrende Posten,
+Einzelbuchungen und Szenario-Effekte zusammen. Ein Jahresposten zählt anteilig
+mit einem Zwölftel, nicht mit dem vollen Betrag im Fälligkeitsmonat.
 
 Diese Kategorien sind immer vorhanden. **Verwende sie, statt neue anzulegen**,
 solange eine davon passt:
@@ -457,6 +468,7 @@ nicht darauf.
 | `investments[].type` unbekannt | wird zu `"sonstiges"` — samt dessen KESt-Satz von 27,5 % |
 | `settings.tax.ongoingSharePct` / `defaultRatePct` außerhalb 0–100 | wird gekappt |
 | `settings.inflationPct` außerhalb −10 bis 100 | wird gekappt |
+| `categories[].budget` ≤ 0 | wird zu `null` — kein Budget |
 | `fire.inflationPct` (altes Schema) | wandert nach `settings.inflationPct` und wird entfernt |
 | `debts[].type` unbekannt | wird zu `"other"` |
 | `dueMonth` außerhalb 1–12 | wird zu `null`, die Fälligkeit ist weg |

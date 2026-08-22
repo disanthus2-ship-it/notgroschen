@@ -11,7 +11,9 @@ und ohne Abhängigkeiten. `index.html` läuft per Doppelklick über `file://`.
 - Keine externen Bibliotheken einführen. Sankey-Layout und Diagramme sind
   bewusst selbst geschrieben, damit die App offline und ohne Installation läuft.
 - Farben ausschließlich über die Tokens aus `css/tokens.css` beziehen, nie als
-  Literal. Jede Änderung muss in Hell **und** Dunkel geprüft werden.
+  Literal. Jede Änderung muss in Hell **und** Dunkel geprüft werden. Für den
+  Druck setzt ein `@media print`-Block in `tokens.css` dieselben Token-Namen auf
+  Papierwerte — auch dort gehören keine Literale in `app.css`.
 - Oberflächentexte sind durchgehend deutsch, Beträge im Format `de-AT`.
 
 ## Mit Daten arbeiten

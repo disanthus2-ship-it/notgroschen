@@ -190,3 +190,34 @@
   --shadow-2: 0 2px 4px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.45);
   --shadow-3: 0 8px 16px rgba(0, 0, 0, 0.5), 0 24px 60px rgba(0, 0, 0, 0.6);
 }
+
+/* ---------------------------------------------------------------------------
+   Druck. Papier ist ein eigenes Medium: weißer Grund, schwarze Schrift, keine
+   Flächen. Statt eigener Literale in app.css werden hier dieselben Token-Namen
+   auf Druckwerte gesetzt — der Rest des Stylesheets bleibt unverändert.
+   --------------------------------------------------------------------------- */
+@media print {
+  :root {
+    --surface-1:    #ffffff;
+    --surface-2:    #ffffff;
+    --surface-3:    #f2f2f2;
+    --surface-sunk: #f2f2f2;
+
+    --text-primary:   #000000;
+    --text-secondary: #333333;
+    --text-muted:     #555555;
+
+    --border:      #999999;
+    --border-soft: #cccccc;
+    --grid:        #dddddd;
+
+    --accent:     #000000;
+    --accent-ink: #000000;
+    --pos: #1a1a1a;
+    --neg: #8a1b1b;
+
+    --shadow-1: none;
+    --shadow-2: none;
+    --shadow-3: none;
+  }
+}

@@ -625,7 +625,7 @@ HB.views = HB.views || {};
         U.el('button', {
           class: 'btn btn-primary', text: 'Kategorie hinzufügen',
           onclick: function () {
-            editing = { id: null, name: '', kind: 'expense', saving: false };
+            editing = { id: null, name: '', kind: 'expense', saving: false, budget: null };
             paint();
           }
         }),
@@ -637,6 +637,7 @@ HB.views = HB.views || {};
           U.el('thead', {}, U.el('tr', {}, [
             U.el('th', { text: 'Kategorie' }),
             U.el('th', { text: 'Art' }),
+            U.el('th', { class: 'num', text: 'Monatsbudget' }),
             U.el('th', { class: 'num', text: 'Einträge' }),
             U.el('th', { class: 'num', text: '' })
           ])),
@@ -649,6 +650,10 @@ HB.views = HB.views || {};
                 c.system ? U.el('span', { class: 'badge', style: { marginLeft: '6px' }, text: 'mitgeliefert' }) : null
               ]),
               U.el('td', { text: c.kind === 'income' ? 'Einnahme' : 'Ausgabe' }),
+              U.el('td', {
+                class: 'num' + (c.budget == null ? ' muted' : ''),
+                text: c.budget == null ? '—' : U.currency(c.budget, { digits: 0 })
+              }),
               U.el('td', { class: 'num', text: String(used[c.id] || 0) }),
               U.el('td', {}, U.el('div', { class: 'row-actions' }, [
                 ui.iconBtn('edit', 'Bearbeiten', function () {
@@ -686,6 +691,7 @@ HB.views = HB.views || {};
         { value: 'income', label: 'Einnahme' }
       ], editing.kind, null, inUse ? { disabled: true } : null);
       var savingIn = U.el('input', { type: 'checkbox', checked: !!editing.saving });
+      var budgetIn = ui.numInput(editing.budget, { placeholder: 'kein Budget' });
 
       body.appendChild(U.el('h3', { text: isNew ? 'Neue Kategorie' : 'Kategorie bearbeiten' }));
       body.appendChild(U.el('div', { class: 'form-grid', style: { marginTop: '12px' } }, [
@@ -693,6 +699,8 @@ HB.views = HB.views || {};
         ui.field('Art', kindSel, inUse
           ? 'Nicht änderbar, solange ' + inUse + ' Einträge darauf zeigen — sie stünden sonst in der falschen Auswertung.'
           : 'Bestimmt, ob die Kategorie bei Einnahmen oder Ausgaben erscheint.'),
+        ui.field('Monatsbudget (€)', budgetIn,
+          'Leer lassen für kein Budget. Die Übersicht zeigt dann die Auslastung mit Ampel.'),
         ui.field('Verwendung',
           U.el('label', { class: 'checkline' }, [savingIn, U.el('span', { text: 'zählt als Vermögensaufbau' })]),
           'Solche Ausgaben gehen in die Sparquote ein statt in den Konsum.')
@@ -707,14 +715,17 @@ HB.views = HB.views || {};
             var id = editing.id;
             var kind = kindSel.value;
             var saving = savingIn.checked;
+            var budgetValue = budgetIn.value === '' ? null : U.parseNum(budgetIn.value);
+            var budget = budgetValue != null && budgetValue > 0 ? budgetValue : null;
 
             S.update(function (st) {
               if (id) {
                 var c = U.byId(st.categories, id);
-                if (c) { c.name = name; c.kind = kind; c.saving = saving; }
+                if (c) { c.name = name; c.kind = kind; c.saving = saving; c.budget = budget; }
               } else {
                 st.categories.push({
-                  id: U.uid('cat'), name: name, kind: kind, system: false, saving: saving
+                  id: U.uid('cat'), name: name, kind: kind, system: false,
+                  saving: saving, budget: budget
                 });
               }
             }, 'categories');

@@ -49,6 +49,62 @@ window.HB = window.HB || {};
    * Budget-Meter. Die Füllung trägt den Schweregrad, die Spur ist die
    * ungefüllte Rest-Strecke — Zustand liest über die ganze Breite.
    */
+  /**
+   * Nur der Balken, ohne Beschriftung — für Tabellenzellen, in denen die Zahlen
+   * ohnehin danebenstehen.
+   */
+  function slimMeter(ratio, label) {
+    var cls = ratio > 1 ? 'is-over' : ratio > 0.85 ? 'is-warn' : '';
+    return U.el('div', {
+      class: 'meter-track slim', role: 'meter',
+      'aria-valuenow': Math.round(ratio * 100), 'aria-valuemin': 0, 'aria-valuemax': 100,
+      'aria-label': label || 'Budgetauslastung'
+    }, [
+      U.el('div', { class: 'meter-fill ' + cls, style: { width: U.clamp(ratio, 0, 1) * 100 + '%' } })
+    ]);
+  }
+
+  /**
+   * Einklappbarer Abschnitt für Rechner und Details, die den Alltag nicht
+   * belasten sollen. Nutzt <details>, damit Tastatur und Vorlesesoftware ohne
+   * Zutun funktionieren; der Zustand hält für die Sitzung an.
+   *
+   * o: { key, label, sub, body, open }
+   */
+  var advancedOpen = {};
+
+  function advanced(o) {
+    var key = o.key || o.label;
+    var isOpen = advancedOpen[key] == null ? !!o.open : advancedOpen[key];
+
+    var box = U.el('details', { class: 'advanced' + (isOpen ? ' is-open' : '') }, [
+      U.el('summary', {}, [
+        U.el('span', { class: 'advanced-caret', 'aria-hidden': 'true', text: '›' }),
+        U.el('span', { class: 'advanced-label', text: o.label || 'Erweitert' }),
+        o.sub ? U.el('span', { class: 'advanced-sub', text: o.sub }) : null
+      ]),
+      U.el('div', { class: 'advanced-body' }, typeof o.body === 'function' ? null : o.body)
+    ]);
+    if (isOpen) box.open = true;
+
+    // Der Inhalt wird erst beim Aufklappen gebaut — ein Rechner, den niemand
+    // aufklappt, kostet so auch nichts.
+    var built = typeof o.body !== 'function';
+    box.addEventListener('toggle', function () {
+      advancedOpen[key] = box.open;
+      box.classList.toggle('is-open', box.open);
+      if (box.open && !built) {
+        built = true;
+        box.querySelector('.advanced-body').appendChild(o.body());
+      }
+    });
+    if (isOpen && !built) {
+      built = true;
+      box.querySelector('.advanced-body').appendChild(o.body());
+    }
+    return box;
+  }
+
   function meter(o) {
     var used = o.used || 0;
     var budget = o.budget || 0;
@@ -363,7 +419,8 @@ window.HB = window.HB || {};
   }
 
   HB.ui = {
-    card: card, stat: stat, meter: meter, chartCard: chartCard,
+    card: card, stat: stat, meter: meter, slimMeter: slimMeter, chartCard: chartCard,
+    advanced: advanced,
     openModal: openModal, closeModal: closeModal, confirm: confirm, toast: toast,
     field: field, select: select, textInput: textInput, numInput: numInput,
     thSort: thSort, toggleSort: toggleSort, applySort: applySort,

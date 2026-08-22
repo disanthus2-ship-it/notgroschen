@@ -248,6 +248,11 @@ p  { margin: 0 0 8px; }
 }
 .meter-fill.is-warn { background: var(--warn); }
 .meter-fill.is-over { background: var(--neg); }
+/* Schmale Variante für Tabellenzellen: nur der Balken, die Zahlen stehen
+   daneben in der Zeile. */
+.meter-track.slim { height: 5px; width: 84px; margin-left: auto; }
+.meter-track.slim .meter-fill { transition: none; }
+
 .meter-legend {
   display: flex;
   justify-content: space-between;
@@ -620,3 +625,105 @@ table.tbl tbody tr.is-clickable:hover .row-chevron { color: var(--accent-ink); }
   color: var(--text-muted);
 }
 .share-slider .foot > span { white-space: nowrap; }
+
+/* --- Erweitert-Schalter --------------------------------------------------- */
+/* Details, die den Alltag nicht belasten sollen: Rechner, Sonderfälle.
+   Zugeklappt sieht man nur eine Zeile, aufgeklappt eine normale Karte. */
+.advanced {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  margin-top: 16px;
+}
+.advanced > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 16px;
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--r-lg);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.advanced > summary::-webkit-details-marker { display: none; }
+.advanced > summary:hover { background: var(--surface-2); }
+.advanced > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.advanced-caret {
+  display: inline-block;
+  transition: transform 0.15s ease;
+  color: var(--text-muted);
+}
+.advanced.is-open .advanced-caret { transform: rotate(90deg); }
+.advanced-label { font-weight: 600; color: var(--text-primary); }
+.advanced-sub { color: var(--text-muted); font-size: 12px; }
+.advanced-body { padding: 0 16px 16px; border-top: 1px solid var(--border-soft); margin-top: 2px; }
+.advanced-body > :first-child { margin-top: 14px; }
+
+/* --- Bericht zum Drucken -------------------------------------------------- */
+/* Am Bildschirm unsichtbar; erst der Druckdialog holt ihn hervor. Das PDF
+   entsteht über „Als PDF sichern“ im Dialog des Browsers. */
+.print-root { display: none; }
+
+.print-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 10px;
+  margin-bottom: 18px;
+}
+.print-head h1 { font-size: 21px; margin: 0; }
+.print-sub { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; }
+.print-brand { text-align: right; font-size: 12px; color: var(--text-secondary); }
+
+.print-figures {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.print-figure { border: 1px solid var(--border-soft); border-radius: 6px; padding: 8px 10px; }
+.print-figure-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+.print-figure-value { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.print-figure-sub { font-size: 10px; color: var(--text-muted); }
+
+.print-section { margin-bottom: 18px; break-inside: avoid; }
+.print-section h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: 4px;
+  margin: 0 0 8px;
+}
+.print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.print-table th {
+  text-align: left;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  padding: 4px 6px;
+}
+.print-table td { padding: 4px 6px; border-bottom: 1px solid var(--border-soft); }
+.print-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.print-table td.neg { color: var(--neg); }
+.print-table tfoot td { font-weight: 700; border-top: 1px solid var(--border); border-bottom: none; }
+.print-foot { font-size: 10px; color: var(--text-muted); margin-top: 24px; border-top: 1px solid var(--border-soft); padding-top: 6px; }
+
+@page { size: A4 portrait; margin: 14mm; }
+
+@media print {
+  /* Nur der Bericht kommt aufs Papier — die App selbst nicht. */
+  body.is-printing > *:not(.print-root) { display: none !important; }
+  body.is-printing .print-root { display: block; }
+  body { background: var(--surface-1); }
+  .print-page { color: var(--text-primary); font-size: 12px; }
+  .print-section { break-inside: auto; }
+  .print-table thead { display: table-header-group; }
+  .print-table tr { break-inside: avoid; }
+}

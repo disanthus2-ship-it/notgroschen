@@ -62,6 +62,158 @@ HB.views = HB.views || {};
     root.appendChild(U.el('div', { class: 'section-title', text: 'Kredite' }));
     root.appendChild(filterbar(state));
     root.appendChild(table(state, d));
+
+    root.appendChild(ui.advanced({
+      key: 'debts.prepayment',
+      label: 'Sondertilgung oder investieren?',
+      sub: 'Was ein freier Betrag mehr bringt',
+      body: function () { return prepaymentCard(S.state); }
+    }));
+  }
+
+  /* --- Sondertilgung gegen Investieren ------------------------------------- */
+
+  /**
+   * Die Frage lässt sich nicht am Zinssatz allein beantworten: Der Kredit
+   * amortisiert ohnehin, die Depotrendite kostet KESt, und nach der Tilgung
+   * wird die Rate frei. Deshalb wird das Nettovermögen an einem gemeinsamen
+   * Stichtag verglichen.
+   */
+  var calc = { debtId: null, amount: 10000, monthly: 0, returnPct: null };
+
+  function prepaymentCard(state) {
+    if (calc.returnPct == null) {
+      var pr = C.portfolioReturn(state);
+      calc.returnPct = pr == null ? 5 : Math.round(pr * 10) / 10;
+    }
+    if (!calc.debtId || !U.byId(state.debts, calc.debtId)) calc.debtId = state.debts[0].id;
+
+    var wrap = U.el('div', {});
+    var out = U.el('div', {});
+
+    var debtSel = ui.select(state.debts.map(function (d) {
+      return { value: d.id, label: d.label + ' · ' + U.num(d.interestPct || 0, 2) + ' %' };
+    }), calc.debtId, function (v) { calc.debtId = v; paint(); });
+
+    var amountIn = ui.numInput(calc.amount, {
+      placeholder: '0,00',
+      onchange: function (e) { calc.amount = Math.max(0, U.parseNum(e.target.value)); paint(); }
+    });
+    var monthlyIn = ui.numInput(calc.monthly, {
+      placeholder: '0,00',
+      onchange: function (e) { calc.monthly = Math.max(0, U.parseNum(e.target.value)); paint(); }
+    });
+    var returnIn = ui.numInput(calc.returnPct, {
+      step: '0.5',
+      onchange: function (e) { calc.returnPct = U.parseNum(e.target.value); paint(); }
+    });
+
+    wrap.appendChild(U.el('div', { class: 'filterbar' }, [
+      ui.field('Kredit', debtSel),
+      ui.field('Einmalbetrag (€)', amountIn, 'Was gerade frei ist'),
+      ui.field('Zusätzlich monatlich (€)', monthlyIn, 'optional, dauerhaft'),
+      ui.field('Erwartete Rendite (% p. a.)', returnIn, 'brutto, vor KESt')
+    ]));
+    wrap.appendChild(out);
+
+    function paint() {
+      U.clear(out);
+      var debt = U.byId(state.debts, calc.debtId);
+      if (!debt) return;
+
+      if (calc.amount <= 0 && calc.monthly <= 0) {
+        out.appendChild(U.el('p', { class: 'muted', text: 'Trage einen Einmalbetrag oder eine monatliche Zusatzrate ein.' }));
+        return;
+      }
+
+      var r = C.prepaymentCompare(state, debt, {
+        amount: calc.amount, monthly: calc.monthly, returnPct: calc.returnPct
+      });
+
+      if (!r.ok) {
+        out.appendChild(U.el('div', { class: 'callout warn' }, [
+          'Die Rate deckt nicht einmal die Zinsen — dieser Kredit wird so nie getilgt. ' +
+          'Ohne Tilgungsplan lässt sich nichts vergleichen.'
+        ]));
+        return;
+      }
+
+      out.appendChild(result(r, debt));
+    }
+
+    paint();
+    return wrap;
+  }
+
+  function result(r, debt) {
+    var wins = r.winner === 'repay';
+    var box = U.el('div', {});
+
+    box.appendChild(U.el('div', { class: 'callout ' + (wins ? '' : 'info'), style: { marginBottom: '14px' } }, [
+      U.el('strong', { text: wins ? 'Tilgen liegt vorn.' : 'Investieren liegt vorn.' }),
+      ' Bis zum regulären Ende von „' + debt.label + '" im ' +
+      U.monthLabel(r.basePlan.payoffKey, 'long') + ' stehst du mit ' +
+      U.currency(Math.abs(r.diff), { digits: 0 }) + ' besser da. Der Kredit kostet ' + U.num(r.interestPct, 2) +
+      ' % sicher und steuerfrei, das Depot bringt erwartete ' + U.num(r.grossPct, 2) +
+      ' % brutto, nach laufender KESt ' + U.num(r.netPct, 2) + ' %.'
+    ]));
+
+    box.appendChild(U.el('div', { class: 'grid grid-2' }, [
+      wayCard('Sondertilgung', r.repay, r, true),
+      wayCard('Investieren', r.invest, r, false)
+    ]));
+
+    box.appendChild(U.el('div', { class: 'stack', style: { marginTop: '14px' } }, [
+      line('Kredit wäre abbezahlt', U.monthLabel(r.basePlan.payoffKey, 'long') +
+        ' → ' + U.monthLabel(r.fastPlan.payoffKey, 'long')),
+      line('Laufzeit verkürzt sich um', r.monthsSaved + (r.monthsSaved === 1 ? ' Monat' : ' Monate')),
+      line('Gesparte Zinsen', U.currency(r.interestSaved, { digits: 0 })),
+      line('Frei werdende Rate', U.currency(r.payment, { digits: 0 }) + ' / Monat ab ' +
+        U.monthLabel(r.freeFrom, 'long')),
+      r.tax.enabled
+        ? line('Aufgeschobene KESt im Depot',
+            U.currency(r.repay.deferredTax, { digits: 0 }) + ' bzw. ' +
+            U.currency(r.invest.deferredTax, { digits: 0 }))
+        : null
+    ]));
+
+    box.appendChild(U.el('p', { class: 'small muted', style: { marginTop: '12px' } }, [
+      'Beide Wege kosten dasselbe Geld — verglichen wird, was am Stichtag übrig ist. ' +
+      'Die Tilgung ist sicher, die Rendite nicht: Bei kurzen Restlaufzeiten wiegt das schwer. ' +
+      'Sondertilgungen sind außerdem oft vertraglich begrenzt oder mit einer Pönale belegt; ' +
+      'das weiß nur dein Kreditvertrag.'
+    ]));
+
+    return box;
+  }
+
+  function wayCard(title, way, r, isRepay) {
+    var wins = (r.winner === 'repay') === isRepay;
+    return ui.card({
+      title: title,
+      body: U.el('div', { class: 'stack' }, [
+        ui.stat({
+          label: 'Nettovermögen am Stichtag',
+          value: U.currency(way.net, { digits: 0 }),
+          hero: true,
+          tone: wins ? 'num-pos' : ''
+        }),
+        line('Depot', U.currency(way.assets, { digits: 0 })),
+        line('Restschuld', way.debt > 0.5 ? U.currency(-way.debt, { digits: 0 }) : 'getilgt'),
+        line('Aufgeschobene KESt', U.currency(-way.deferredTax, { digits: 0 }))
+      ])
+    });
+  }
+
+  function line(label, value) {
+    return U.el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '12px' } }, [
+      U.el('span', { class: 'small muted', text: label }),
+      U.el('span', {
+        class: 'small nowrap',
+        style: { fontVariantNumeric: 'tabular-nums', fontWeight: '600' },
+        text: value
+      })
+    ]);
   }
 
   /* --- Kennzahlen --------------------------------------------------------- */

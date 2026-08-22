@@ -235,6 +235,13 @@ function checkCategories(data) {
     if (!isObj(c)) { err(`categories[${i}]`, 'Muss ein Objekt sein.'); return; }
     if (typeof c.name !== 'string' || !c.name.trim()) err(at, 'Feld "name" fehlt oder ist leer.');
     if (!KINDS.includes(c.kind)) err(at, `"kind" muss "income" oder "expense" sein, ist ${JSON.stringify(c.kind)}.`);
+    if (c.budget != null) {
+      if (!isNum(c.budget)) {
+        err(at, '"budget" muss null oder eine Zahl sein. null heißt: kein Monatsbudget.');
+      } else if (c.budget <= 0) {
+        warn(at, `"budget" ${c.budget} ist nicht positiv — die App behandelt das wie "kein Budget".`);
+      }
+    }
     byId.set(c.id, c);
   });
   return { ids, byId };
@@ -647,8 +654,17 @@ function summarise(data, month) {
 
   const withGrowth = (data.items || []).filter((it) => isObj(it) && it.growth).length;
 
+  // Kategoriebudgets gegen die Monatsbilanz halten.
+  const budgets = [];
+  for (const c of data.categories || []) {
+    if (!isObj(c) || c.budget == null || !(Number(c.budget) > 0)) continue;
+    const used = byCat.get(c.id) || 0;
+    budgets.push({ name: c.name || c.id, budget: Number(c.budget), used, over: used > Number(c.budget) });
+  }
+  budgets.sort((a, b) => b.used / b.budget - a.used / a.budget);
+
   return {
-    withGrowth,
+    withGrowth, budgets,
     month, income, expense, net: income - expense, saving,
     savingsRate: income > 0 ? (income - expense + saving) / income : 0,
     activeItems, monthTx, byOwner, names, topCats,
@@ -751,6 +767,14 @@ function report(file, data, sum, asJson) {
     console.log(`\nGrößte Ausgabenkategorien`);
     for (const [name, v] of sum.topCats) {
       console.log(`  ${String(name).padEnd(28)} ${eur.format(v).padStart(11)}`);
+    }
+  }
+
+  if (sum.budgets.length) {
+    console.log(`\nKategoriebudgets ${sum.month}`);
+    for (const b of sum.budgets) {
+      const pct = ((b.used / b.budget) * 100).toFixed(0) + ' %';
+      console.log(`  ${String(b.name).padEnd(24)} ${eur.format(b.used).padStart(10)} / ${eur.format(b.budget).padStart(10)}  ${pct.padStart(6)}${b.over ? '  überschritten' : ''}`);
     }
   }
 

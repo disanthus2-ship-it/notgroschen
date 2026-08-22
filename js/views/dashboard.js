@@ -76,6 +76,13 @@ HB.views = HB.views || {};
       ]),
       U.el('div', { class: 'inline-actions' }, [
         U.el('button', {
+          class: 'btn btn-sm', text: 'Bericht drucken',
+          title: 'Monatsbericht als PDF sichern oder ausdrucken',
+          onclick: function () {
+            HB.report.print({ kind: 'month', key: view.month, plans: selectedPlans() });
+          }
+        }),
+        U.el('button', {
           class: 'btn btn-sm', text: 'Posten erfassen',
           onclick: function () { HB.app.go('items', { create: true }); }
         })
@@ -328,6 +335,17 @@ HB.views = HB.views || {};
 
     var total = U.sum(rows, function (r) { return r.value; });
 
+    // Kategorien mit Budget, aber ohne Ausgabe in diesem Monat, gehören trotzdem
+    // in die Tabelle — sonst verschwindet ein eingehaltenes Budget aus dem Blick.
+    var budgets = C.budgetSummary(state, s);
+    var byId = {};
+    budgets.list.forEach(function (b) { byId[b.id] = b; });
+    rows.forEach(function (r) { if (byId[r.id]) byId[r.id].seen = true; });
+    budgets.list.forEach(function (b) {
+      if (b.kind === 'expense' && !b.seen) rows.push({ id: b.id, name: b.name, value: 0 });
+    });
+    var hasBudgets = budgets.count > 0;
+
     var body = rows.length
       ? U.el('div', { class: 'table-wrap' }, [
           U.el('table', { class: 'tbl' }, [
@@ -335,7 +353,8 @@ HB.views = HB.views || {};
               U.el('th', { text: 'Kategorie' }),
               U.el('th', { class: 'num', text: 'pro Monat' }),
               U.el('th', { class: 'num', text: 'pro Jahr' }),
-              U.el('th', { class: 'num', text: 'Anteil' })
+              U.el('th', { class: 'num', text: 'Anteil' }),
+              hasBudgets ? U.el('th', { class: 'num', text: 'Budget' }) : null
             ])),
             U.el('tbody', {}, rows.map(function (r) {
               return U.el('tr', {
@@ -359,14 +378,18 @@ HB.views = HB.views || {};
                 ]),
                 U.el('td', { class: 'num', text: U.currency(r.value, { digits: 0 }) }),
                 U.el('td', { class: 'num', text: U.currency(r.value * 12, { digits: 0 }) }),
-                U.el('td', { class: 'num', text: U.pct(r.value / total, 1) })
+                U.el('td', { class: 'num', text: total > 0 ? U.pct(r.value / total, 1) : '—' }),
+                hasBudgets ? budgetCell(byId[r.id]) : null
               ]);
             })),
             U.el('tfoot', {}, U.el('tr', {}, [
               U.el('td', { text: 'Summe' }),
               U.el('td', { class: 'num', text: U.currency(total, { digits: 0 }) }),
               U.el('td', { class: 'num', text: U.currency(total * 12, { digits: 0 }) }),
-              U.el('td', { class: 'num', text: '100 %' })
+              U.el('td', { class: 'num', text: '100 %' }),
+              hasBudgets
+                ? U.el('td', { class: 'num', text: U.currency(budgets.used, { digits: 0 }) + ' / ' + U.currency(budgets.total, { digits: 0 }) })
+                : null
             ]))
           ])
         ])
@@ -376,8 +399,29 @@ HB.views = HB.views || {};
       title: 'Ausgaben nach Kategorie',
       sub: 'inkl. anteiliger Jahres- und Quartalsposten',
       raw: body,
-      foot: rows.length ? 'Eine Zeile anklicken zeigt die Einzelposten dahinter.' : null
+      foot: rows.length
+        ? 'Eine Zeile anklicken zeigt die Einzelposten dahinter.' +
+          (hasBudgets
+            ? budgets.overCount
+              ? ' ' + budgets.overCount + (budgets.overCount === 1 ? ' Budget ist' : ' Budgets sind') +
+                ' überschritten: ' + budgets.over.map(function (b) { return b.name; }).join(', ') + '.'
+              : ' Alle ' + budgets.count + ' Budgets sind eingehalten.'
+            : ' Monatsbudgets je Kategorie lassen sich in der Kategorienverwaltung hinterlegen.')
+        : null
     });
+  }
+
+  /** Zelle mit Auslastung und Balken; ohne Budget bleibt sie leer. */
+  function budgetCell(b) {
+    if (!b) return U.el('td', { class: 'num muted', text: '—' });
+    return U.el('td', { class: 'num' }, [
+      U.el('div', {
+        class: b.over ? 'num-neg' : '',
+        text: U.currency(b.used, { digits: 0 }) + ' / ' + U.currency(b.budget, { digits: 0 })
+      }),
+      ui.slimMeter(b.ratio, 'Budget ' + b.name),
+      U.el('div', { class: 'small muted', text: U.pct(b.ratio, 0) })
+    ]);
   }
 
   /* --- Aufschlüsselung einer Kategorie ------------------------------------- */
@@ -396,6 +440,8 @@ HB.views = HB.views || {};
 
     var catTotal = U.sum(flows, function (f) { return f.amount; });
     var isSaving = C.isSavingCategory(state, catId);
+    var cat = U.byId(state.categories, catId);
+    var budget = cat && cat.budget != null ? Number(cat.budget) : null;
 
     var SOURCE = {
       recurring: { label: 'Posten', cls: '' },
@@ -414,11 +460,22 @@ HB.views = HB.views || {};
           value: sum.expense ? U.pct(catTotal / sum.expense, 1) : '—',
           sub: 'von ' + U.currency(sum.expense, { digits: 0 })
         }),
-        ui.stat({
-          label: 'Einzelposten', value: String(flows.length),
-          sub: isSaving ? 'zählt als Vermögensaufbau' : U.monthLabel(view.month, 'long')
-        })
+        budget
+          ? ui.stat({
+              label: 'Monatsbudget',
+              value: U.currency(budget - catTotal, { digits: 0, sign: true }),
+              tone: catTotal > budget ? 'num-neg' : 'num-pos',
+              sub: (catTotal > budget ? 'über' : 'unter') + ' dem Budget von ' +
+                U.currency(budget, { digits: 0 })
+            })
+          : ui.stat({
+              label: 'Einzelposten', value: String(flows.length),
+              sub: isSaving ? 'zählt als Vermögensaufbau' : U.monthLabel(view.month, 'long')
+            })
       ]),
+      budget
+        ? ui.meter({ used: catTotal, budget: budget, label: 'Budget ' + (cat ? cat.name : '') })
+        : null,
       U.el('div', { class: 'table-wrap' }, [
         U.el('table', { class: 'tbl' }, [
           U.el('thead', {}, U.el('tr', {}, [

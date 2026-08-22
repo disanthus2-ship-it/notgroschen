@@ -95,6 +95,16 @@ window.HB = window.HB || {};
     var m = U.monthKey();
     s.meta.name = 'Haushalt Berg';
     s.household.budget = 4600;
+
+    // Ein paar Monatsbudgets — zwei knapp, damit die Ampel im Beispielhaushalt
+    // sichtbar wird.
+    var demoBudgets = {
+      cat_food: 1000, cat_leisure: 400, cat_mobility: 800,
+      cat_travel: 300, cat_shopping: 250, cat_comms: 120
+    };
+    s.categories.forEach(function (c) {
+      if (demoBudgets[c.id]) c.budget = demoBudgets[c.id];
+    });
     s.household.assets = 8500;   // Girokonto und Rücklage; der Rest steckt in Investments
 
     var a = { id: 'per_alex',  name: 'Alex',  colorIndex: 0, budget: 400, sharePct: null, note: '' };
@@ -332,6 +342,18 @@ window.HB = window.HB || {};
     s.settings.tax.enabled = s.settings.tax.enabled !== false;
     s.settings.tax.ongoingSharePct = U.clamp(Number(s.settings.tax.ongoingSharePct) || 0, 0, 100);
     s.settings.tax.defaultRatePct = U.clamp(Number(s.settings.tax.defaultRatePct) || 0, 0, 100);
+
+    // Kategorien tragen ein optionales Monatsbudget. Ein Wert ≤ 0 zählt als
+    // „kein Budget" — sonst stünde die Ampel dauerhaft auf Rot.
+    s.categories = s.categories.map(function (c, i) {
+      var budget = c.budget == null || c.budget === '' ? null : Number(c.budget);
+      return Object.assign({}, c, {
+        id: c.id || U.uid('cat'),
+        name: String(c.name || 'Kategorie ' + (i + 1)),
+        kind: c.kind === 'income' ? 'income' : 'expense',
+        budget: budget != null && isFinite(budget) && budget > 0 ? budget : null
+      });
+    });
 
     s.people = s.people.map(function (p, i) {
       return {
